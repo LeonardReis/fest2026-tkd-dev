@@ -492,26 +492,26 @@ function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label:
 }
 
 function TributeCard({ settings }: { settings?: any }) {
-  const tributeImage = settings?.tributeImage || "https://images.unsplash.com/photo-1555597673-b21d5c935865?auto=format&fit=crop&q=80";
+  const tributeImage = settings?.tributeImage || "/tribute.jpg";
   
   return (
     <Card className="p-6 bg-gradient-to-br from-stone-900 to-stone-800 text-white border-stone-700 relative overflow-hidden">
       <div className="absolute top-0 right-0 w-32 h-32 bg-red-600/20 rounded-full blur-3xl -mr-10 -mt-10" />
       <div className="relative z-10 flex flex-col sm:flex-row gap-6 items-center sm:items-start text-center sm:text-left">
-        <div className="w-24 h-24 shrink-0 rounded-full overflow-hidden border-2 border-stone-600 shadow-xl">
+        <div className="w-24 h-24 shrink-0 rounded-full overflow-hidden border-2 border-red-600/50 shadow-[0_0_15px_rgba(220,38,38,0.3)]">
           <img 
             src={tributeImage}
             alt="Taekwondo Tribute" 
-            className="w-full h-full object-cover grayscale"
+            className="w-full h-full object-cover"
           />
         </div>
         <div className="space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-stone-800 border border-stone-700 text-xs font-bold text-stone-300 uppercase tracking-wider mb-1">
             <Trophy className="w-3 h-3 text-amber-500" />
-            Homenagem Especial
+            Lenda do Taekwondo
           </div>
-          <h3 className="text-xl font-bold text-white">Em Memória de Chuck Norris</h3>
-          <p className="text-stone-400 text-sm font-medium">1940 – 2026</p>
+          <h3 className="text-xl font-bold text-white italic tracking-tight uppercase">Chuck Norris</h3>
+          <p className="text-stone-400 text-sm font-medium">Homenagem ao Legado</p>
           <p className="text-stone-300 text-sm leading-relaxed mt-2">
             Um dos maiores embaixadores do Taekwondo, que ajudou a popularizar nossa arte marcial globalmente. Seu legado viverá para sempre nos tatames e na história das artes marciais.
           </p>
@@ -1283,6 +1283,16 @@ function RegistrationsView({ profile, registrations, athletes, academies, receip
     }
   };
 
+  const handleDeleteRegistration = async (id: string) => {
+    if (window.confirm('Tem certeza que deseja cancelar e excluir esta inscrição de forma permanente?')) {
+      try {
+        await deleteDoc(doc(db, 'registrations', id));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, 'registrations');
+      }
+    }
+  };
+
   const myAcademyRegs = profile?.role === 'admin'
     ? registrations
     : registrations.filter(r => academies.some(a => a.id === r.academyId));
@@ -1515,7 +1525,7 @@ function RegistrationsView({ profile, registrations, athletes, academies, receip
         </Card>
       ) : (
         <div className="space-y-4">
-          {registrations.map(reg => {
+          {myAcademyRegs.map(reg => {
             const athlete = athletes.find(a => a.id === reg.athleteId);
             const ageCat = athlete ? getAgeCategory(athlete.birthDate, athlete.belt) : '';
             const weightCat = athlete ? getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt) : '';
@@ -1602,11 +1612,23 @@ function RegistrationsView({ profile, registrations, athletes, academies, receip
                     </p>
                     <p className="text-[10px] text-stone-400">Status</p>
                   </div>
+                  
+                  {/* Botão de Excluir Inscrição (Orphan Cleanup & Cancel) */}
+                  {(profile?.role === 'admin' || reg.paymentStatus === 'Pendente') && (
+                    <Button 
+                      variant="ghost" 
+                      className="p-2 h-auto text-red-500 hover:bg-red-50 ml-2" 
+                      onClick={() => handleDeleteRegistration(reg.id)}
+                      title="Excluir Inscrição"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </Button>
+                  )}
                 </div>
               </Card>
             );
           })}
-          {registrations.length === 0 && (
+          {myAcademyRegs.length === 0 && (
             <div className="py-20 text-center text-stone-500">Nenhuma inscrição realizada.</div>
           )}
         </div>
