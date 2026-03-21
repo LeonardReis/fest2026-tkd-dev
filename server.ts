@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { MercadoPagoConfig, Payment, Preference } from 'mercadopago';
 import cors from 'cors';
@@ -95,8 +96,30 @@ async function startServer() {
   // Webhook Endpoint (Receives notifications from Mercado Pago)
   app.post("/api/payments/webhook", async (req, res) => {
     try {
+      const signatureHeader = req.headers['x-signature'] as string;
+      const requestId = req.headers['x-request-id'] as string;
       const { action, data } = req.body;
       
+      // Validação de Integridade (HMAC) se a secret estiver configurada
+      if (process.env.MERCADOPAGO_WEBHOOK_SECRET && signatureHeader && requestId && data?.id) {
+        const parts = signatureHeader.split(',');
+        let ts = '';
+        let v1 = '';
+        parts.forEach(part => {
+          const [key, value] = part.split('=');
+          if (key === 'ts') ts = value;
+          if (key === 'v1') v1 = value;
+        });
+
+        const manifest = `id:${data.id};request-id:${requestId};ts:${ts};`;
+        const hmac = crypto.createHmac('sha256', process.env.MERCADOPAGO_WEBHOOK_SECRET).update(manifest).digest('hex');
+        
+        if (hmac !== v1) {
+          console.warn(`[Segurança] Assinatura de webhook inválida detectada. Ação: ${action}`);
+          return res.status(403).send('Invalid signature');
+        }
+      }
+
       if (action === 'payment.updated' || action === 'payment.created') {
         const paymentId = data.id;
         const payment = new Payment(client);

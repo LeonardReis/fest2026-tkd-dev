@@ -28,7 +28,7 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && 
         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-         (request.auth.token.email == "leo@laravitoria.com" && request.auth.token.email_verified == true));
+         (request.auth.token.email in ["leo@laravitoria.com", "tauyllin.edfisica@hotmail.com", "tauyllin.tkd@gmail.com"] && request.auth.token.email_verified == true));
     }
 
     function isMaster() {
@@ -45,13 +45,14 @@ service cloud.firestore {
 
     // Validators
     function isValidUser(data) {
-      return data.email is string && data.role in ['admin', 'master'];
+      return data.email is string && data.role in ['admin', 'master'] && hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'photoURL']);
     }
 
     function isValidAcademy(data) {
       return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.master is string && data.master.size() > 0 &&
-             data.createdBy == request.auth.uid;
+             data.createdBy == request.auth.uid &&
+             hasOnlyAllowedFields(['name', 'master', 'contact', 'logo', 'createdBy']);
     }
 
     function isValidAthlete(data) {
@@ -61,7 +62,8 @@ service cloud.firestore {
              data.belt is string &&
              data.weight is number &&
              data.academyId is string &&
-             data.createdBy == request.auth.uid;
+             data.createdBy == request.auth.uid &&
+             hasOnlyAllowedFields(['name', 'birthDate', 'gender', 'belt', 'weight', 'academyId', 'createdBy']);
     }
 
     function isValidRegistration(data) {
@@ -70,7 +72,8 @@ service cloud.firestore {
              data.categories is list &&
              data.categories.size() > 0 &&
              data.status in ['Pendente', 'Confirmado', 'Cancelado'] &&
-             data.paymentStatus in ['Pendente', 'Pago', 'Em Análise'];
+             data.paymentStatus in ['Pendente', 'Pago', 'Em Análise'] &&
+             hasOnlyAllowedFields(['athleteId', 'academyId', 'categories', 'status', 'paymentStatus', 'createdAt']);
     }
 
     // Rules

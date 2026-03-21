@@ -52,82 +52,10 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'motion/react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { Button, Card, Input, Select, cn } from './components/ui';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
 
-// --- Components ---
-
-const Button = ({ 
-  children, 
-  className, 
-  variant = 'primary', 
-  ...props 
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'danger' | 'ghost' }) => {
-  const variants = {
-    primary: 'bg-red-600 text-white hover:bg-red-700',
-    secondary: 'bg-white text-stone-900 border border-stone-200 hover:bg-stone-50',
-    danger: 'bg-red-600 text-white hover:bg-red-700',
-    ghost: 'bg-transparent text-stone-600 hover:bg-stone-100'
-  };
-
-  return (
-    <button 
-      className={cn(
-        'px-4 py-2 rounded-xl font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50',
-        variants[variant],
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-};
-
-const Card = ({ children, className, key }: { children: React.ReactNode; className?: string; key?: string }) => (
-  <div className={cn('bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden', className)}>
-    {children}
-  </div>
-);
-
-const Input = ({ label, error, ...props }: React.InputHTMLAttributes<HTMLInputElement> & { label: string; error?: string }) => (
-  <div className="space-y-1.5 w-full">
-    <label className="text-sm font-medium text-stone-700">{label}</label>
-    <input 
-      className={cn(
-        'w-full px-4 py-2.5 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900/10 focus:border-stone-900 outline-none transition-all',
-        error && 'border-red-500 focus:ring-red-500/10 focus:border-red-500'
-      )}
-      {...props}
-    />
-    {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
-  </div>
-);
-
-const Select = ({ label, options, error, ...props }: React.SelectHTMLAttributes<HTMLSelectElement> & { label: string; options: { value: string; label: string }[]; error?: string }) => (
-  <div className="space-y-1.5 w-full">
-    <label className="text-sm font-medium text-stone-700">{label}</label>
-    <select 
-      className={cn(
-        'w-full px-4 py-2.5 rounded-xl border border-stone-200 focus:ring-2 focus:ring-stone-900/10 focus:border-stone-900 outline-none transition-all bg-white',
-        error && 'border-red-500 focus:ring-red-500/10 focus:border-red-500'
-      )}
-      {...props}
-    >
-      <option value="">Selecione...</option>
-      {options.map(opt => (
-        <option key={opt.value} value={opt.value}>{opt.label}</option>
-      ))}
-    </select>
-    {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
-  </div>
-);
-
-const UNIAO_LOPES_LOGO = "/logo-colombo.svg";
+const UNIAO_LOPES_LOGO = "/logo-colombo.png";
 
 const formatWhatsAppNumber = (phone: string) => {
   let cleaned = phone.replace(/\D/g, '');
@@ -161,14 +89,24 @@ export default function App() {
       if (firebaseUser) {
         try {
           const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          const adminEmails = ['leo@laravitoria.com', 'tauyllin.edfisica@hotmail.com', 'tauyllin.tkd@gmail.com'];
+          const isSystemAdmin = adminEmails.includes(firebaseUser.email || '');
+
           if (userDoc.exists()) {
-            setProfile({ uid: firebaseUser.uid, ...userDoc.data() } as UserProfile);
+            const userData = userDoc.data() as UserProfile;
+            if (isSystemAdmin && userData.role !== 'admin') {
+              // Upgrade existing user to admin if they are in the white-list
+              await updateDoc(doc(db, 'users', firebaseUser.uid), { role: 'admin' });
+              setProfile({ ...userData, uid: firebaseUser.uid, role: 'admin' });
+            } else {
+              setProfile({ uid: firebaseUser.uid, ...userData } as UserProfile);
+            }
           } else {
-            // New user defaults to master
+            // New user defaults to master unless in the admin list
             const newProfile: UserProfile = {
               uid: firebaseUser.uid,
               email: firebaseUser.email || '',
-              role: firebaseUser.email === 'leo@laravitoria.com' ? 'admin' : 'master',
+              role: isSystemAdmin ? 'admin' : 'master',
               displayName: firebaseUser.displayName || '',
               photoURL: firebaseUser.photoURL || ''
             };
@@ -260,8 +198,9 @@ export default function App() {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
+      alert(`Erro no Login: ${error.message || error.code || 'Desconhecido'}\n\nPossíveis causas:\n1. Bloqueador de Popup ativado.\n2. Domínio não autorizado no Firebase.\nVerifique o painel F12 para detalhes técnicos.`);
     }
   };
 
@@ -281,83 +220,108 @@ export default function App() {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex bg-stone-900">
-        {/* Left Side - Poster Background */}
-        <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center">
-          {/* Background Image with Red/Blue Theme */}
-          <div className="absolute inset-0 z-0">
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-900 via-stone-900 to-red-900 opacity-80" />
+      <div className="min-h-screen flex bg-stone-900 font-sans selection:bg-red-500 selection:text-white">
+        {/* Left Side - Poster Concept */}
+        <div className="hidden lg:flex lg:w-3/5 relative overflow-hidden items-center justify-center border-r border-white/10">
+          <div className="absolute inset-0 z-0 bg-stone-950">
+            {/* Dynamic Gradients */}
+            <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_0%_0%,_rgba(220,38,38,0.4)_0%,_transparent_50%)]" />
+            <div className="absolute bottom-0 right-0 w-full h-full bg-[radial-gradient(circle_at_100%_100%,_rgba(37,99,235,0.4)_0%,_transparent_50%)]" />
+            
             <img 
-              src="https://images.unsplash.com/photo-1555597673-b21d5c935865?auto=format&fit=crop&q=80" 
+              src="/poster.jpg" 
               alt="Background" 
-              className="w-full h-full object-cover opacity-30 mix-blend-overlay"
+              className="w-full h-full object-cover opacity-40 mix-blend-luminosity brightness-75 contrast-125 grayscale-[20%]"
+              onError={(e) => { e.currentTarget.src = "https://images.unsplash.com/photo-1555597673-b21d5c935865?auto=format&fit=crop&q=80" }}
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-stone-900 via-transparent to-transparent" />
+            
+            {/* Slash overlay effect */}
+            <div className="absolute inset-0" style={{ backgroundImage: 'linear-gradient(105deg, transparent 40%, rgba(220,38,38,0.1) 45%, rgba(37,99,235,0.1) 55%, transparent 60%)' }} />
+            <div className="absolute inset-0 bg-stone-900/60" />
+            <div className="absolute inset-0 bg-gradient-to-t from-stone-950 via-stone-900/50 to-transparent" />
           </div>
           
-          <div className="relative z-10 w-full max-w-lg p-12 text-center space-y-8">
-            <div className="w-40 h-40 mx-auto flex items-center justify-center rounded-full overflow-hidden shadow-2xl shadow-red-600/20 border-4 border-white/10 bg-white/5 backdrop-blur-md p-4">
-              <img src={UNIAO_LOPES_LOGO} alt="Associação Colombo de Taekwondo Logo" className="w-full h-full object-contain drop-shadow-lg" />
-            </div>
-            <div className="space-y-4">
-              <h1 className="text-5xl font-black tracking-tight text-white uppercase italic drop-shadow-lg">
-                3º Festival<br/>
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-red-600">União Lopes</span>
+          <div className="relative z-10 w-full max-w-2xl p-12 text-center space-y-10">
+            <motion.div 
+              initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.5 }}
+              className="w-48 h-48 mx-auto flex items-center justify-center rounded-full overflow-hidden shadow-[0_0_50px_rgba(220,38,38,0.3)] border-4 border-white/5 bg-white/10 backdrop-blur-xl p-4"
+            >
+              <img src="/logo-colombo.png" alt="Associação Colombo de Taekwondo Logo" className="w-full h-full object-contain drop-shadow-2xl" onError={(e) => { e.currentTarget.src = UNIAO_LOPES_LOGO }} />
+            </motion.div>
+            
+            <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.2, duration: 0.6 }} className="space-y-2">
+              <h1 className="text-6xl md:text-7xl font-black tracking-tighter text-white uppercase italic drop-shadow-[0_4px_20px_rgba(220,38,38,0.5)]">
+                3º FESTIVAL<br/>
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-red-600 drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] filter">UNIÃO LOPES</span>
               </h1>
-              <p className="text-2xl font-bold text-stone-300 uppercase tracking-widest">Taekwondo</p>
-              <p className="text-lg text-stone-400 font-medium tracking-widest border-y border-stone-700 py-2">E Filiados 2026</p>
-            </div>
+              <p className="text-4xl font-black text-white uppercase tracking-widest drop-shadow-xl italic mt-2">TAEKWONDO</p>
+              
+              <div className="flex items-center justify-center gap-6 py-6 w-3/4 mx-auto">
+                 <div className="h-1 flex-1 bg-red-600 rounded-full shadow-[0_0_10px_rgba(220,38,38,0.8)]" />
+                 <p className="text-xl text-white font-black tracking-widest uppercase italic">E FILIADOS 2026</p>
+                 <div className="h-1 flex-1 bg-blue-600 rounded-full shadow-[0_0_10px_rgba(37,99,235,0.8)]" />
+              </div>
+            </motion.div>
 
-            <div className="grid grid-cols-2 gap-4 text-left pt-8">
-              <div className="bg-white/5 backdrop-blur-sm p-4 rounded-xl border border-white/10">
-                <Calendar className="w-6 h-6 text-red-500 mb-2" />
-                <p className="text-white font-bold">12 de Abril</p>
-                <p className="text-stone-400 text-sm">Domingo, 08h às 19h</p>
+            <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.4, duration: 0.6 }} className="grid grid-cols-2 gap-4 text-left">
+              <div className="bg-white/5 backdrop-blur-md p-6 rounded-2xl border border-white/10 shadow-2xl hover:bg-white/10 transition-colors">
+                <Calendar className="w-8 h-8 text-red-500 mb-4" />
+                <p className="text-white font-black text-xl mb-1">12 DE ABRIL</p>
+                <p className="text-stone-400 text-sm font-medium">Domingo, 08h às 19h</p>
               </div>
-              <div className="bg-white/5 backdrop-blur-sm p-4 rounded-xl border border-white/10">
-                <MapPin className="w-6 h-6 text-blue-500 mb-2" />
-                <p className="text-white font-bold">Colombo/PR</p>
-                <p className="text-stone-400 text-sm">Colégio Alfredo Chaves</p>
+              <div className="bg-white/5 backdrop-blur-md p-6 rounded-2xl border border-white/10 shadow-2xl hover:bg-white/10 transition-colors">
+                <MapPin className="w-8 h-8 text-blue-500 mb-4" />
+                <p className="text-white font-black text-xl mb-1">COLOMBO / PR</p>
+                <p className="text-stone-400 text-sm font-medium leading-tight">Colégio E.C.M. Alfredo Chaves<br/>Rio Verde</p>
               </div>
-            </div>
+            </motion.div>
           </div>
         </div>
 
-        {/* Right Side - Login Form */}
-        <div className="flex-1 flex flex-col items-center justify-center p-6 bg-stone-50 relative">
+        {/* Right Side - Login Form (Glassmorphism dark mode) */}
+        <div className="flex-1 flex flex-col items-center justify-center p-6 bg-stone-950 relative overflow-hidden">
+          {/* Subtle noise/texture for the right side */}
+          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-100 contrast-150 mix-blend-overlay z-0"></div>
+          
           <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5 }}
             className="max-w-md w-full text-center space-y-8 relative z-10"
           >
-            <div className="lg:hidden space-y-4">
-              <div className="w-24 h-24 mx-auto flex items-center justify-center rounded-full overflow-hidden shadow-xl shadow-red-600/20 border-4 border-white bg-white">
-                <img src={UNIAO_LOPES_LOGO} alt="Associação Colombo de Taekwondo Logo" className="w-full h-full object-contain" />
+            <div className="lg:hidden space-y-6">
+              <div className="w-32 h-32 mx-auto flex items-center justify-center rounded-full overflow-hidden shadow-[0_0_30px_rgba(220,38,38,0.4)] border-2 border-white/20 bg-stone-900 p-2">
+                <img src="/logo-colombo.png" alt="Logo" className="w-full h-full object-contain" onError={(e) => { e.currentTarget.src = UNIAO_LOPES_LOGO }} />
               </div>
-              <h1 className="text-3xl font-bold tracking-tight text-stone-900">3º Festival União Lopes</h1>
-              <p className="text-stone-500 font-medium">Taekwondo e Filiados 2026</p>
+              <div>
+                <h1 className="text-4xl font-black tracking-tighter text-white uppercase italic">3º FESTIVAL<br/><span className="text-red-500">UNIÃO LOPES</span></h1>
+                <p className="text-stone-400 font-bold tracking-widest uppercase mt-2">TAEKWONDO 2026</p>
+              </div>
             </div>
 
-            <div className="space-y-2 hidden lg:block">
-              <h2 className="text-3xl font-bold text-stone-900">Portal de Inscrições</h2>
-              <p className="text-stone-500">Acesso exclusivo para Professores e Mestres</p>
+            <div className="space-y-3 hidden lg:block text-left">
+              <h2 className="text-4xl font-black text-white tracking-tight uppercase">Portal de Inscrições</h2>
+              <p className="text-stone-400 text-lg">Acesso exclusivo para Professores Regulamentados</p>
             </div>
 
-            <Card className="p-8 space-y-6 shadow-xl border-stone-200/50 bg-white/80 backdrop-blur-xl">
+            <Card className="p-8 space-y-8 bg-stone-900/60 backdrop-blur-2xl border border-white/10 shadow-2xl">
               <div className="space-y-4">
-                <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                  <Shield className="w-8 h-8 text-red-600" />
+                <div className="w-20 h-20 bg-gradient-to-br from-red-500/20 to-blue-500/20 rounded-3xl flex items-center justify-center mx-auto mb-8 border border-white/5 shadow-[inset_0_0_20px_rgba(255,255,255,0.05)]">
+                  <Shield className="w-10 h-10 text-red-500" />
                 </div>
-                <p className="text-stone-600 text-sm leading-relaxed">
-                  Bem-vindo ao sistema oficial de inscrições. Faça login com sua conta Google para gerenciar os atletas da sua academia.
+                <p className="text-stone-300 text-sm leading-relaxed pb-4">
+                  Bem-vindo ao sistema de gestão oficial do festival. Autentique-se com sua conta Google vinculada para acessar sua academia, atletas e comprovantes.
                 </p>
               </div>
-              <Button onClick={handleLogin} className="w-full py-6 text-lg bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-600/20 transition-all hover:scale-[1.02]">
-                Entrar com Google
+              <Button onClick={handleLogin} className="w-full py-6 text-lg bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(220,38,38,0.4)] hover:shadow-[0_0_30px_rgba(220,38,38,0.6)] transition-all hover:scale-[1.02] border border-red-500/50 font-bold uppercase tracking-wider">
+                Acessar Sistema
               </Button>
             </Card>
 
-            <p className="text-stone-400 text-sm">Associação Colombo Taekwondo</p>
+            <div className="flex items-center justify-center gap-2 text-stone-500 text-sm font-medium">
+              <Shield className="w-4 h-4" />
+              <span>Ambiente Seguro • Associação Colombo</span>
+            </div>
           </motion.div>
         </div>
       </div>
@@ -428,7 +392,7 @@ export default function App() {
             <AnimatePresence mode="wait">
               {view === 'dashboard' && <DashboardView key="dashboard" profile={profile} stats={{ academies: academies.length, athletes: athletes.length, registrations: registrations.length }} />}
               {view === 'academy' && <AcademyView key="academy" profile={profile} academies={academies} />}
-              {view === 'athletes' && <AthletesView key="athletes" profile={profile} athletes={athletes} academies={academies} />}
+              {view === 'athletes' && <AthletesView key="athletes" profile={profile} athletes={athletes} academies={academies} registrations={registrations} />}
               {view === 'registrations' && <RegistrationsView key="registrations" profile={profile} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} />}
               {view === 'admin' && <AdminView key="admin" profile={profile} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} />}
               {view === 'profile' && <ProfileView key="profile" profile={profile} user={user} />}
@@ -790,7 +754,7 @@ const BELT_OPTIONS = [
   { value: '9º Dan - Preta', label: '9º Dan - Preta' },
 ];
 
-function AthletesView({ profile, athletes, academies, key }: { profile: UserProfile | null; athletes: Athlete[]; academies: Academy[]; key?: string }) {
+function AthletesView({ profile, athletes, academies, registrations, key }: { profile: UserProfile | null; athletes: Athlete[]; academies: Academy[]; registrations: Registration[]; key?: string }) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -835,6 +799,16 @@ function AthletesView({ profile, athletes, academies, key }: { profile: UserProf
     if (!profile) return;
     try {
       if (editingId) {
+        // Verifica se há inscrições e se houve mudança de dados organizacionais
+        const hasRegistrations = registrations.some(r => r.athleteId === editingId);
+        if (hasRegistrations) {
+            const original = athletes.find(a => a.id === editingId);
+            if (original && (original.birthDate !== formData.birthDate || original.gender !== formData.gender || original.weight !== formData.weight)) {
+                if (!window.confirm("ATENÇÃO: Este atleta possui inscrições ativas.\n\nA alteração de Nascimento, Gênero ou Peso pode afetar o enquadramento em categorias (Chaves).\n\nDeseja forçar a edição?")) {
+                    return;
+                }
+            }
+        }
         await updateDoc(doc(db, 'athletes', editingId), formData);
       } else {
         await addDoc(collection(db, 'athletes'), {
@@ -865,6 +839,12 @@ function AthletesView({ profile, athletes, academies, key }: { profile: UserProf
   };
 
   const handleDelete = async (id: string) => {
+    const athleteRegs = registrations.filter(r => r.athleteId === id);
+    if (athleteRegs.length > 0) {
+      alert(`BLINDAGEM DO SISTEMA\nEste atleta possui ${athleteRegs.length} inscrição(ões) salva(s) no sistema.\nNão é possível excluí-lo diretamente.`);
+      return;
+    }
+
     if (window.confirm('Tem certeza que deseja excluir este atleta?')) {
       try {
         await deleteDoc(doc(db, 'athletes', id));
@@ -1020,7 +1000,14 @@ function AthletesView({ profile, athletes, academies, key }: { profile: UserProf
                   <td className="px-6 py-4">
                     <div className="flex gap-2">
                       <Button variant="ghost" className="p-2 h-auto" onClick={() => handleEdit(athlete)}><Edit className="w-4 h-4" /></Button>
-                      <Button variant="ghost" className="p-2 h-auto text-red-500 hover:bg-red-50" onClick={() => handleDelete(athlete.id)}><Trash2 className="w-4 h-4" /></Button>
+                      <Button 
+                        variant="ghost" 
+                        className={cn("p-2 h-auto", registrations.some(r => r.athleteId === athlete.id) ? "text-stone-300 cursor-not-allowed" : "text-red-500 hover:bg-red-50")}
+                        onClick={() => handleDelete(athlete.id)}
+                        title={registrations.some(r => r.athleteId === athlete.id) ? "Bloqueado por Inscrição Ativa" : "Excluir Atleta"}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
                     </div>
                   </td>
                 </tr>
