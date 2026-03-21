@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
@@ -246,7 +246,7 @@ export default function App() {
               initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.5 }}
               className="w-48 h-48 mx-auto flex items-center justify-center rounded-full overflow-hidden shadow-[0_0_50px_rgba(220,38,38,0.3)] border-4 border-white/5 bg-white/10 backdrop-blur-xl p-4"
             >
-              <img src="/logo-colombo.png" alt="Associação Colombo de Taekwondo Logo" className="w-full h-full object-contain drop-shadow-2xl" onError={(e) => { e.currentTarget.src = UNIAO_LOPES_LOGO }} />
+              <img src={settings?.festivalLogo || "/logo-colombo.png"} alt="Associação Colombo de Taekwondo Logo" className="w-full h-full object-contain drop-shadow-2xl" onError={(e) => { e.currentTarget.src = UNIAO_LOPES_LOGO }} />
             </motion.div>
             
             <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.2, duration: 0.6 }} className="space-y-2">
@@ -275,6 +275,10 @@ export default function App() {
                 <p className="text-stone-400 text-sm font-medium leading-tight">Colégio E.C.M. Alfredo Chaves<br/>Rio Verde</p>
               </div>
             </motion.div>
+
+            <div className="pt-8 text-left">
+              <TributeCard settings={settings} />
+            </div>
           </div>
         </div>
 
@@ -291,7 +295,7 @@ export default function App() {
           >
             <div className="lg:hidden space-y-6">
               <div className="w-32 h-32 mx-auto flex items-center justify-center rounded-full overflow-hidden shadow-[0_0_30px_rgba(220,38,38,0.4)] border-2 border-white/20 bg-stone-900 p-2">
-                <img src="/logo-colombo.png" alt="Logo" className="w-full h-full object-contain" onError={(e) => { e.currentTarget.src = UNIAO_LOPES_LOGO }} />
+                <img src={settings?.festivalLogo || "/logo-colombo.png"} alt="Logo" className="w-full h-full object-contain" onError={(e) => { e.currentTarget.src = UNIAO_LOPES_LOGO }} />
               </div>
               <div>
                 <h1 className="text-4xl font-black tracking-tighter text-white uppercase italic">3º FESTIVAL<br/><span className="text-red-500">UNIÃO LOPES</span></h1>
@@ -335,7 +339,7 @@ export default function App() {
         <aside className="w-72 bg-white border-r border-stone-200 flex flex-col hidden md:flex">
           <div className="p-6 border-b border-stone-100 flex items-center gap-3">
             <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-stone-100 shrink-0 bg-white">
-              <img src={UNIAO_LOPES_LOGO} alt="Associação Colombo de Taekwondo Logo" className="w-full h-full object-cover" />
+              <img src={settings?.festivalLogo || UNIAO_LOPES_LOGO} alt="Associação Colombo de Taekwondo Logo" className="w-full h-full object-cover" />
             </div>
             <div>
               <h2 className="font-bold text-stone-900 leading-tight">3º Festival</h2>
@@ -390,7 +394,7 @@ export default function App() {
 
           <div className="p-8 overflow-y-auto">
             <AnimatePresence mode="wait">
-              {view === 'dashboard' && <DashboardView key="dashboard" profile={profile} stats={{ academies: academies.length, athletes: athletes.length, registrations: registrations.length }} />}
+              {view === 'dashboard' && <DashboardView key="dashboard" profile={profile} stats={{ academies: academies.length, athletes: athletes.length, registrations: registrations.length }} settings={settings} />}
               {view === 'academy' && <AcademyView key="academy" profile={profile} academies={academies} />}
               {view === 'athletes' && <AthletesView key="athletes" profile={profile} athletes={athletes} academies={academies} registrations={registrations} />}
               {view === 'registrations' && <RegistrationsView key="registrations" profile={profile} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} />}
@@ -423,13 +427,15 @@ function NavItem({ active, onClick, icon, label }: { active: boolean; onClick: (
   );
 }
 
-function DashboardView({ stats, profile, key }: { stats: { academies: number; athletes: number; registrations: number }; profile: UserProfile | null; key?: string }) {
+function DashboardView({ stats, profile, settings, key }: { stats: { academies: number; athletes: number; registrations: number }; profile: UserProfile | null; settings?: any; key?: string }) {
   return (
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="space-y-8"
     >
+      <TributeCard settings={settings} />
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <StatCard icon={<School className="w-6 h-6" />} label="Academias" value={stats.academies} color="bg-blue-500" />
         <StatCard icon={<Users className="w-6 h-6" />} label="Atletas Cadastrados" value={stats.athletes} color="bg-emerald-500" />
@@ -485,6 +491,36 @@ function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label:
   );
 }
 
+function TributeCard({ settings }: { settings?: any }) {
+  const tributeImage = settings?.tributeImage || "https://images.unsplash.com/photo-1555597673-b21d5c935865?auto=format&fit=crop&q=80";
+  
+  return (
+    <Card className="p-6 bg-gradient-to-br from-stone-900 to-stone-800 text-white border-stone-700 relative overflow-hidden">
+      <div className="absolute top-0 right-0 w-32 h-32 bg-red-600/20 rounded-full blur-3xl -mr-10 -mt-10" />
+      <div className="relative z-10 flex flex-col sm:flex-row gap-6 items-center sm:items-start text-center sm:text-left">
+        <div className="w-24 h-24 shrink-0 rounded-full overflow-hidden border-2 border-stone-600 shadow-xl">
+          <img 
+            src={tributeImage}
+            alt="Taekwondo Tribute" 
+            className="w-full h-full object-cover grayscale"
+          />
+        </div>
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-stone-800 border border-stone-700 text-xs font-bold text-stone-300 uppercase tracking-wider mb-1">
+            <Trophy className="w-3 h-3 text-amber-500" />
+            Homenagem Especial
+          </div>
+          <h3 className="text-xl font-bold text-white">Em Memória de Chuck Norris</h3>
+          <p className="text-stone-400 text-sm font-medium">1940 – 2026</p>
+          <p className="text-stone-300 text-sm leading-relaxed mt-2">
+            Um dos maiores embaixadores do Taekwondo, que ajudou a popularizar nossa arte marcial globalmente. Seu legado viverá para sempre nos tatames e na história das artes marciais.
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function StepItem({ done, label, description }: { done: boolean; label: string; description: string }) {
   return (
     <div className="flex gap-4">
@@ -505,7 +541,7 @@ function StepItem({ done, label, description }: { done: boolean; label: string; 
 function AcademyView({ profile, academies, key }: { profile: UserProfile | null; academies: Academy[]; key?: string }) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [formData, setFormData] = useState({ name: '', master: '', contact: '', logo: '' });
+  const [formData, setFormData] = useState({ name: '', coach: '', master: '', contact: '', logo: '' });
   const [isCustomName, setIsCustomName] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -524,7 +560,7 @@ function AcademyView({ profile, academies, key }: { profile: UserProfile | null;
       }
       setIsAdding(false);
       setEditingId(null);
-      setFormData({ name: '', master: '', contact: '', logo: '' });
+      setFormData({ name: '', coach: '', master: '', contact: '', logo: '' });
       setIsCustomName(false);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'academies');
@@ -534,6 +570,7 @@ function AcademyView({ profile, academies, key }: { profile: UserProfile | null;
   const handleEdit = (academy: Academy) => {
     setFormData({
       name: academy.name,
+      coach: academy.coach || '',
       master: academy.master,
       contact: academy.contact,
       logo: academy.logo || ''
@@ -638,17 +675,24 @@ function AcademyView({ profile, academies, key }: { profile: UserProfile | null;
             )}
 
             <Input 
+              label="Técnico Responsável pela Equipe" 
+              placeholder="Nome do Técnico" 
+              value={formData.coach}
+              onChange={e => setFormData({ ...formData, coach: e.target.value })}
+              required
+            />
+            <Input 
+              label="Contato WhatsApp (Gestão/Técnico)" 
+              placeholder="(00) 00000-0000" 
+              value={formData.contact}
+              onChange={e => setFormData({ ...formData, contact: e.target.value })}
+              required
+            />
+            <Input 
               label="Mestre Responsável" 
               placeholder="Nome do Mestre" 
               value={formData.master}
               onChange={e => setFormData({ ...formData, master: e.target.value })}
-              required
-            />
-            <Input 
-              label="Contato (Telefone/Email)" 
-              placeholder="(00) 00000-0000" 
-              value={formData.contact}
-              onChange={e => setFormData({ ...formData, contact: e.target.value })}
               required
             />
             <div className="flex gap-4 pt-4">
@@ -656,7 +700,7 @@ function AcademyView({ profile, academies, key }: { profile: UserProfile | null;
               <Button type="button" variant="secondary" onClick={() => {
                 setIsAdding(false);
                 setEditingId(null);
-                setFormData({ name: '', master: '', contact: '', logo: '' });
+                setFormData({ name: '', coach: '', master: '', contact: '', logo: '' });
                 setIsCustomName(false);
               }}>Cancelar</Button>
             </div>
@@ -691,6 +735,7 @@ function AcademyView({ profile, academies, key }: { profile: UserProfile | null;
               </div>
               <div>
                 <h4 className="text-lg font-bold text-stone-900">{academy.name}</h4>
+                <p className="text-sm text-stone-500">Técnico: {academy.coach}</p>
                 <p className="text-sm text-stone-500">Mestre: {academy.master}</p>
                 <p className="text-sm text-stone-500">Contato: {academy.contact}</p>
               </div>
@@ -734,15 +779,15 @@ const PREDEFINED_ACADEMIES = [
 
 const BELT_OPTIONS = [
   { value: '10º Gub - Branca', label: '10º Gub - Branca' },
-  { value: '9º Gub - Branca/Amarela', label: '9º Gub - Branca/Amarela' },
+  { value: '9º Gub - Cinza', label: '9º Gub - Cinza' },
   { value: '8º Gub - Amarela', label: '8º Gub - Amarela' },
-  { value: '7º Gub - Amarela/Verde', label: '7º Gub - Amarela/Verde' },
-  { value: '6º Gub - Verde', label: '6º Gub - Verde' },
-  { value: '5º Gub - Verde/Azul', label: '5º Gub - Verde/Azul' },
-  { value: '4º Gub - Azul', label: '4º Gub - Azul' },
-  { value: '3º Gub - Azul/Vermelha', label: '3º Gub - Azul/Vermelha' },
+  { value: '7º Gub - Laranja', label: '7º Gub - Laranja' },
+  { value: '6º Gub - Verde Claro', label: '6º Gub - Verde Claro' },
+  { value: '5º Gub - Verde Escuro', label: '5º Gub - Verde Escuro' },
+  { value: '4º Gub - Azul Claro', label: '4º Gub - Azul Claro' },
+  { value: '3º Gub - Azul Escuro', label: '3º Gub - Azul Escuro' },
   { value: '2º Gub - Vermelha', label: '2º Gub - Vermelha' },
-  { value: '1º Gub - Vermelha/Preta', label: '1º Gub - Vermelha/Preta' },
+  { value: '1º Gub - Vermelha Escura', label: '1º Gub - Vermelha Escura' },
   { value: '1º Dan - Preta', label: '1º Dan - Preta' },
   { value: '2º Dan - Preta', label: '2º Dan - Preta' },
   { value: '3º Dan - Preta', label: '3º Dan - Preta' },
@@ -752,7 +797,62 @@ const BELT_OPTIONS = [
   { value: '7º Dan - Preta', label: '7º Dan - Preta' },
   { value: '8º Dan - Preta', label: '8º Dan - Preta' },
   { value: '9º Dan - Preta', label: '9º Dan - Preta' },
+  { value: '10º Dan - Preta', label: '10º Dan - Preta' },
 ];
+
+function BeltBadge({ belt }: { belt: string }) {
+  let style: React.CSSProperties = {};
+  let className = "px-2 py-1 rounded text-xs font-bold inline-flex items-center gap-1.5 ";
+  
+  // Faixas antigas (transição)
+  if (belt.includes('Branca/Amarela')) {
+    style = { background: 'linear-gradient(90deg, #ffffff 50%, #facc15 50%)', color: '#1c1917', border: '1px solid #e7e5e4' };
+  } else if (belt.includes('Amarela/Verde')) {
+    style = { background: 'linear-gradient(90deg, #facc15 50%, #22c55e 50%)', color: '#1c1917' };
+  } else if (belt.includes('Verde/Azul')) {
+    style = { background: 'linear-gradient(90deg, #22c55e 50%, #3b82f6 50%)', color: '#ffffff' };
+  } else if (belt.includes('Azul/Vermelha')) {
+    style = { background: 'linear-gradient(90deg, #3b82f6 50%, #ef4444 50%)', color: '#ffffff' };
+  } else if (belt.includes('Vermelha/Preta')) {
+    style = { background: 'linear-gradient(90deg, #ef4444 50%, #000000 50%)', color: '#ffffff' };
+  } 
+  // Novas faixas
+  else if (belt.includes('Branca')) {
+    className += 'bg-white text-stone-800 border border-stone-200 shadow-sm';
+  } else if (belt.includes('Cinza')) {
+    className += 'bg-gray-300 text-stone-800';
+  } else if (belt.includes('Amarela')) {
+    className += 'bg-yellow-400 text-stone-900';
+  } else if (belt.includes('Laranja')) {
+    className += 'bg-orange-500 text-white';
+  } else if (belt.includes('Verde Claro')) {
+    className += 'bg-green-400 text-stone-900';
+  } else if (belt.includes('Verde Escuro')) {
+    className += 'bg-green-800 text-white';
+  } else if (belt.includes('Verde')) {
+    className += 'bg-green-500 text-white'; // fallback antiga
+  } else if (belt.includes('Azul Claro')) {
+    className += 'bg-sky-400 text-stone-900';
+  } else if (belt.includes('Azul Escuro')) {
+    className += 'bg-blue-900 text-white';
+  } else if (belt.includes('Azul')) {
+    className += 'bg-blue-500 text-white'; // fallback antiga
+  } else if (belt.includes('Vermelha Escura') || belt.includes('Bordô')) {
+    className += 'bg-red-900 text-white';
+  } else if (belt.includes('Vermelha')) {
+    className += 'bg-red-500 text-white';
+  } else if (belt.includes('Preta')) {
+    className += 'bg-black text-white';
+  } else {
+    className += 'bg-stone-100 text-stone-700';
+  }
+
+  return (
+    <span className={className} style={style}>
+      {belt}
+    </span>
+  );
+}
 
 function AthletesView({ profile, athletes, academies, registrations, key }: { profile: UserProfile | null; athletes: Athlete[]; academies: Academy[]; registrations: Registration[]; key?: string }) {
   const [isAdding, setIsAdding] = useState(false);
@@ -962,8 +1062,8 @@ function AthletesView({ profile, athletes, academies, registrations, key }: { pr
             </thead>
             <tbody className="divide-y divide-stone-100">
               {athletes.map(athlete => {
-                const ageCat = getAgeCategory(athlete.birthDate);
-                const weightCat = getWeightCategory(ageCat, athlete.gender, athlete.weight);
+                const ageCat = getAgeCategory(athlete.birthDate, athlete.belt);
+                const weightCat = getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt);
                 return (
                 <tr key={athlete.id} className="hover:bg-stone-50 transition-colors">
                   <td className="px-6 py-4">
@@ -982,16 +1082,16 @@ function AthletesView({ profile, athletes, academies, registrations, key }: { pr
                             <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded uppercase tracking-wider">Você</span>
                           )}
                         </div>
-                        <p className="text-xs text-stone-500">{new Date(athlete.birthDate).toLocaleDateString('pt-BR')} ({athlete.gender})</p>
+                        <p className="text-xs text-stone-500">{new Date(athlete.birthDate).toLocaleDateString('pt-BR')}</p>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <p className="font-bold text-stone-900 text-sm">{ageCat}</p>
+                    <p className="font-bold text-stone-900 text-sm">{ageCat} - {athlete.gender === 'M' ? 'Masculino' : 'Feminino'}</p>
                     <p className="text-xs text-stone-500">{weightCat}</p>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="px-2 py-1 bg-stone-100 rounded text-xs font-bold text-stone-700">{athlete.belt}</span>
+                    <BeltBadge belt={athlete.belt} />
                   </td>
                   <td className="px-6 py-4 text-sm text-stone-600">{athlete.weight} kg</td>
                   <td className="px-6 py-4 text-sm text-stone-600">
@@ -1417,8 +1517,8 @@ function RegistrationsView({ profile, registrations, athletes, academies, receip
         <div className="space-y-4">
           {registrations.map(reg => {
             const athlete = athletes.find(a => a.id === reg.athleteId);
-            const ageCat = athlete ? getAgeCategory(athlete.birthDate) : '';
-            const weightCat = athlete ? getWeightCategory(ageCat, athlete.gender, athlete.weight) : '';
+            const ageCat = athlete ? getAgeCategory(athlete.birthDate, athlete.belt) : '';
+            const weightCat = athlete ? getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt) : '';
             return (
               <Card key={reg.id} className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
@@ -1450,7 +1550,7 @@ function RegistrationsView({ profile, registrations, athletes, academies, receip
                       )}
                     </div>
                     <p className="text-xs text-stone-500">
-                      {ageCat} ({weightCat}) • {reg.categories?.join(', ')} • {academies.find(a => a.id === reg.academyId)?.name} • <span className="font-bold text-stone-700">R$ {calculatePrice(reg.categories || []).toFixed(2).replace('.', ',')}</span>
+                      {ageCat} - {athlete?.gender === 'M' ? 'Masculino' : 'Feminino'} ({weightCat}) • {reg.categories?.join(', ')} • {academies.find(a => a.id === reg.academyId)?.name} • <span className="font-bold text-stone-700">R$ {calculatePrice(reg.categories || []).toFixed(2).replace('.', ',')}</span>
                     </p>
                   </div>
                 </div>
@@ -1619,7 +1719,104 @@ function ProfileView({ profile, user, key }: { profile: UserProfile | null; user
   );
 }
 
+function CompetitionView({ registrations, athletes, academies }: { registrations: Registration[]; athletes: Athlete[]; academies: Academy[] }) {
+  const [selectedCategory, setSelectedCategory] = useState<string>('Kyorugui');
+  
+  // Agrupar atletas por categoria de competição
+  const groupedAthletes = useMemo(() => {
+    const groups: Record<string, any[]> = {};
+    
+    registrations.filter(r => r.status === 'Confirmado' && r.categories.includes(selectedCategory as any)).forEach(reg => {
+      const athlete = athletes.find(a => a.id === reg.athleteId);
+      if (!athlete) return;
+      
+      const ageCat = getAgeCategory(athlete.birthDate, athlete.belt);
+      const weightCat = getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt);
+      const isDan = athlete.belt.includes('Dan') ? 'Preta' : 'Colorida';
+      const genderStr = athlete.gender === 'M' ? 'Masculino' : 'Feminino';
+      
+      let groupKey = '';
+      if (selectedCategory === 'Kyorugui') {
+        groupKey = `${ageCat} | ${isDan} | ${genderStr} | ${weightCat}`;
+      } else if (selectedCategory.includes('Kyopa')) {
+        groupKey = `Categoria Única`;
+      } else {
+        groupKey = `${ageCat} | ${isDan} | ${genderStr}`;
+      }
+      
+      if (!groups[groupKey]) {
+        groups[groupKey] = [];
+      }
+      
+      groups[groupKey].push({
+        ...athlete,
+        academy: academies.find(a => a.id === athlete.academyId)?.name || 'Desconhecida'
+      });
+    });
+    
+    return groups;
+  }, [registrations, athletes, academies, selectedCategory]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex gap-2 overflow-x-auto pb-2">
+        {['Kyorugui', 'Poomsae', 'Kyopa (3 tábuas)', 'Kyopa (5 tábuas)'].map(cat => (
+          <button
+            key={cat}
+            onClick={() => setSelectedCategory(cat)}
+            className={cn(
+              "px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all",
+              selectedCategory === cat ? "bg-red-600 text-white shadow-md" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+            )}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+
+      {Object.keys(groupedAthletes).length === 0 ? (
+        <Card className="p-12 text-center text-stone-500">
+          <Trophy className="w-12 h-12 mx-auto mb-4 text-stone-300" />
+          <p>Nenhum atleta confirmado nesta categoria ainda.</p>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {Object.entries(groupedAthletes).sort(([a], [b]) => a.localeCompare(b)).map(([groupKey, groupAthletes]: [string, any[]]) => (
+            <Card key={groupKey} className="p-6 border-t-4 border-t-red-600">
+              <h3 className="font-bold text-stone-900 mb-4 pb-2 border-b border-stone-100">{groupKey}</h3>
+              <div className="space-y-3">
+                {groupAthletes.map((athlete, idx) => (
+                  <div key={athlete.id} className="flex items-center justify-between p-3 bg-stone-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-6 h-6 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-xs font-bold">
+                        {idx + 1}
+                      </div>
+                      <div>
+                        <p className="font-bold text-sm text-stone-900">{athlete.name}</p>
+                        <p className="text-xs text-stone-500">{athlete.academy} • {athlete.belt}</p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-bold text-stone-400">{athlete.weight}kg</span>
+                  </div>
+                ))}
+              </div>
+              {groupAthletes.length === 1 && (
+                <div className="mt-4 p-3 bg-amber-50 text-amber-800 text-xs rounded-lg flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  Atleta sozinho na chave. Necessário remanejamento.
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminView({ profile, registrations, athletes, academies, receipts, settings, key }: { profile: UserProfile | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; settings: any; key?: string }) {
+  const [adminTab, setAdminTab] = useState<'finance' | 'competition'>('finance');
+
   const calculatePrice = (categories: string[]) => {
     let total = 0;
     if (categories.includes('Kyorugui') || categories.includes('Poomsae')) {
@@ -1668,7 +1865,7 @@ function AdminView({ profile, registrations, athletes, academies, receipts, sett
       const academy = academies.find(a => a.id === academyId);
       if (academy && academy.contact) {
         const formattedPhone = formatWhatsAppNumber(academy.contact);
-        const text = `Olá Mestre/Professor(a) ${academy.master}, os pagamentos pendentes da academia *${academy.name}* foram APROVADOS no 3º Festival União Lopes! As inscrições estão confirmadas. 🥋`;
+        const text = `Olá Técnico(a) ${academy.coach}, os pagamentos pendentes da academia *${academy.name}* foram APROVADOS no 3º Festival União Lopes! As inscrições estão confirmadas. 🥋`;
         
         if (window.confirm('Pagamentos aprovados com sucesso! Deseja notificar a academia via WhatsApp?')) {
           window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`, '_blank');
@@ -1698,7 +1895,7 @@ function AdminView({ profile, registrations, athletes, academies, receipts, sett
       const academy = academies.find(a => a.id === academyId);
       if (academy && academy.contact) {
         const formattedPhone = formatWhatsAppNumber(academy.contact);
-        const text = `Olá Mestre/Professor(a) ${academy.master}, houve um problema com o comprovante de pagamento enviado para a academia *${academy.name}* no 3º Festival União Lopes. As inscrições voltaram para o status Pendente. Por favor, verifique e envie novamente na plataforma. 🥋`;
+        const text = `Olá Técnico(a) ${academy.coach}, houve um problema com o comprovante de pagamento enviado para a academia *${academy.name}* no 3º Festival União Lopes. As inscrições voltaram para o status Pendente. Por favor, verifique e envie novamente na plataforma. 🥋`;
         
         if (window.confirm('Comprovante rejeitado. Deseja notificar a academia via WhatsApp?')) {
           window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`, '_blank');
@@ -1713,17 +1910,35 @@ function AdminView({ profile, registrations, athletes, academies, receipts, sett
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Painel de Administração - Financeiro</h2>
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="p-6 bg-stone-900 text-white">
-          <p className="text-stone-400 text-sm font-medium mb-1">Total Arrecadado</p>
-          <p className="text-3xl font-bold">R$ {academyStats.reduce((sum, a) => sum + a.paidValue, 0).toFixed(2).replace('.', ',')}</p>
-        </Card>
-        <Card className="p-6 bg-amber-50 border-amber-200">
-          <p className="text-amber-600 text-sm font-medium mb-1">Total Pendente</p>
-          <p className="text-3xl font-bold text-amber-900">R$ {academyStats.reduce((sum, a) => sum + a.pendingValue, 0).toFixed(2).replace('.', ',')}</p>
-        </Card>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h2 className="text-2xl font-bold">Painel de Administração</h2>
+        <div className="flex bg-stone-100 p-1 rounded-xl">
+          <button 
+            onClick={() => setAdminTab('finance')}
+            className={cn("px-4 py-2 rounded-lg text-sm font-bold transition-all", adminTab === 'finance' ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-700")}
+          >
+            Financeiro
+          </button>
+          <button 
+            onClick={() => setAdminTab('competition')}
+            className={cn("px-4 py-2 rounded-lg text-sm font-bold transition-all", adminTab === 'competition' ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-700")}
+          >
+            Competição
+          </button>
+        </div>
+      </div>
+
+      {adminTab === 'finance' ? (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className="p-6 bg-stone-900 text-white">
+              <p className="text-stone-400 text-sm font-medium mb-1">Total Arrecadado</p>
+              <p className="text-3xl font-bold">R$ {academyStats.reduce((sum, a) => sum + a.paidValue, 0).toFixed(2).replace('.', ',')}</p>
+            </Card>
+            <Card className="p-6 bg-amber-50 border-amber-200">
+              <p className="text-amber-600 text-sm font-medium mb-1">Total Pendente</p>
+              <p className="text-3xl font-bold text-amber-900">R$ {academyStats.reduce((sum, a) => sum + a.pendingValue, 0).toFixed(2).replace('.', ',')}</p>
+            </Card>
         <Card className="p-6">
           <p className="text-stone-500 text-sm font-medium mb-1">Total de Inscrições</p>
           <p className="text-3xl font-bold text-stone-900">{registrations.length}</p>
@@ -1751,6 +1966,51 @@ function AdminView({ profile, registrations, athletes, academies, receipts, sett
           >
             <div className={`w-6 h-6 rounded-full bg-white absolute top-1 transition-transform ${settings.mercadoPagoEnabled ? 'left-7' : 'left-1'}`} />
           </button>
+        </Card>
+
+        <Card className="p-6 space-y-4">
+          <div>
+            <h4 className="font-bold text-lg text-stone-900">Imagens do Sistema</h4>
+            <p className="text-sm text-stone-500">Altere a URL das imagens usadas no festival.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-stone-700">Logo do Festival (URL)</label>
+              <input 
+                type="text"
+                className="w-full p-3 border border-stone-200 rounded-xl focus:ring-2 focus:ring-red-600 focus:border-transparent"
+                placeholder="Ex: https://..."
+                defaultValue={settings.festivalLogo || ''}
+                onBlur={async (e) => {
+                  try {
+                    await setDoc(doc(db, 'settings', 'payment'), {
+                      festivalLogo: e.target.value
+                    }, { merge: true });
+                  } catch (err) {
+                    console.error(err);
+                  }
+                }}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-stone-700">Imagem da Homenagem (URL)</label>
+              <input 
+                type="text"
+                className="w-full p-3 border border-stone-200 rounded-xl focus:ring-2 focus:ring-red-600 focus:border-transparent"
+                placeholder="Ex: https://..."
+                defaultValue={settings.tributeImage || ''}
+                onBlur={async (e) => {
+                  try {
+                    await setDoc(doc(db, 'settings', 'payment'), {
+                      tributeImage: e.target.value
+                    }, { merge: true });
+                  } catch (err) {
+                    console.error(err);
+                  }
+                }}
+              />
+            </div>
+          </div>
         </Card>
       </div>
 
@@ -1829,6 +2089,10 @@ function AdminView({ profile, registrations, athletes, academies, receipts, sett
           <p className="text-stone-500 text-center py-10">Nenhuma inscrição registrada ainda.</p>
         )}
       </div>
+        </>
+      ) : (
+        <CompetitionView registrations={registrations} athletes={athletes} academies={academies} />
+      )}
     </div>
   );
 }

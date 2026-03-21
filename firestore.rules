@@ -10,7 +10,7 @@ service cloud.firestore {
     // Fields: email (string), role (string), academyId (string), displayName (string)
     //
     // Collection: academies
-    // Fields: name (string), master (string), contact (string), createdBy (string)
+    // Fields: name (string), coach (string), master (string), contact (string), createdBy (string)
     //
     // Collection: athletes
     // Fields: name (string), birthDate (string), gender (string), belt (string), weight (number), academyId (string), createdBy (string)
@@ -28,7 +28,7 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && 
         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-         (request.auth.token.email in ["leo@laravitoria.com", "tauyllin.edfisica@hotmail.com", "tauyllin.tkd@gmail.com"] && request.auth.token.email_verified == true));
+         (request.auth.token.email in ["leo@laravitoria.com", "tauyllin.edfisica@hotmail.com", "tauyllin.tkd@gmail.com", "carloswalesko@gmail.com"] && request.auth.token.email_verified == true));
     }
 
     function isMaster() {
@@ -50,6 +50,7 @@ service cloud.firestore {
 
     function isValidAcademy(data) {
       return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.coach is string && data.coach.size() > 0 &&
              data.master is string && data.master.size() > 0 &&
              data.createdBy == request.auth.uid &&
              hasOnlyAllowedFields(['name', 'master', 'contact', 'logo', 'createdBy']);

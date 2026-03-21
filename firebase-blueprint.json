@@ -6,11 +6,12 @@
       "type": "object",
       "properties": {
         "name": { "type": "string", "description": "Nome da academia" },
+        "coach": { "type": "string", "description": "Nome do técnico responsável" },
         "master": { "type": "string", "description": "Nome do mestre responsável" },
         "contact": { "type": "string", "description": "Telefone ou email de contato" },
         "createdBy": { "type": "string", "description": "UID do usuário que criou" }
       },
-      "required": ["name", "master", "createdBy"]
+      "required": ["name", "coach", "master", "createdBy"]
     },
     "Athlete": {
       "title": "Athlete",

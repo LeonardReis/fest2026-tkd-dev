@@ -12,6 +12,7 @@ export interface UserProfile {
 export interface Academy {
   id: string;
   name: string;
+  coach: string;
   master: string;
   contact: string;
   createdBy: string;
