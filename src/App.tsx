@@ -1990,50 +1990,7 @@ function AdminView({ profile, registrations, athletes, academies, receipts, sett
           </button>
         </Card>
 
-        <Card className="p-6 space-y-4">
-          <div>
-            <h4 className="font-bold text-lg text-stone-900">Imagens do Sistema</h4>
-            <p className="text-sm text-stone-500">Altere a URL das imagens usadas no festival.</p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-stone-700">Logo do Festival (URL)</label>
-              <input 
-                type="text"
-                className="w-full p-3 border border-stone-200 rounded-xl focus:ring-2 focus:ring-red-600 focus:border-transparent"
-                placeholder="Ex: https://..."
-                defaultValue={settings.festivalLogo || ''}
-                onBlur={async (e) => {
-                  try {
-                    await setDoc(doc(db, 'settings', 'payment'), {
-                      festivalLogo: e.target.value
-                    }, { merge: true });
-                  } catch (err) {
-                    console.error(err);
-                  }
-                }}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-stone-700">Imagem da Homenagem (URL)</label>
-              <input 
-                type="text"
-                className="w-full p-3 border border-stone-200 rounded-xl focus:ring-2 focus:ring-red-600 focus:border-transparent"
-                placeholder="Ex: https://..."
-                defaultValue={settings.tributeImage || ''}
-                onBlur={async (e) => {
-                  try {
-                    await setDoc(doc(db, 'settings', 'payment'), {
-                      tributeImage: e.target.value
-                    }, { merge: true });
-                  } catch (err) {
-                    console.error(err);
-                  }
-                }}
-              />
-            </div>
-          </div>
-        </Card>
+
       </div>
 
       <div className="space-y-4">
