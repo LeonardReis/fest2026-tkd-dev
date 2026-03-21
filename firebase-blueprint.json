@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "Academy": {
+      "title": "Academy",
+      "description": "Uma academia ou escola de Taekwondo participante.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Nome da academia" },
+        "master": { "type": "string", "description": "Nome do mestre responsável" },
+        "contact": { "type": "string", "description": "Telefone ou email de contato" },
+        "createdBy": { "type": "string", "description": "UID do usuário que criou" }
+      },
+      "required": ["name", "master", "createdBy"]
+    },
+    "Athlete": {
+      "title": "Athlete",
+      "description": "Um atleta inscrito no festival.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Nome completo do atleta" },
+        "birthDate": { "type": "string", "format": "date", "description": "Data de nascimento" },
+        "gender": { "type": "string", "enum": ["M", "F"], "description": "Gênero" },
+        "belt": { "type": "string", "description": "Faixa/Graduação" },
+        "weight": { "type": "number", "description": "Peso em kg" },
+        "academyId": { "type": "string", "description": "ID da academia vinculada" },
+        "createdBy": { "type": "string", "description": "UID do usuário que cadastrou" }
+      },
+      "required": ["name", "birthDate", "gender", "belt", "weight", "academyId", "createdBy"]
+    },
+    "Registration": {
+      "title": "Registration",
+      "description": "Inscrição de um atleta em uma categoria do festival.",
+      "type": "object",
+      "properties": {
+        "athleteId": { "type": "string", "description": "ID do atleta" },
+        "academyId": { "type": "string", "description": "ID da academia" },
+        "category": { "type": "string", "enum": ["Kyorugui", "Poomsae", "Ambos"], "description": "Categoria da competição" },
+        "status": { "type": "string", "enum": ["Pendente", "Confirmado", "Cancelado"], "description": "Status da inscrição" },
+        "paymentStatus": { "type": "string", "enum": ["Pendente", "Pago"], "description": "Status do pagamento" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Data da inscrição" }
+      },
+      "required": ["athleteId", "academyId", "category", "status", "paymentStatus", "createdAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Perfil de usuário do sistema.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "description": "Email do usuário" },
+        "role": { "type": "string", "enum": ["admin", "master"], "description": "Papel no sistema" },
+        "academyId": { "type": "string", "description": "ID da academia (se for master)" },
+        "displayName": { "type": "string", "description": "Nome de exibição" }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "academies": { "schema": "Academy", "description": "Coleção de academias" },
+    "athletes": { "schema": "Athlete", "description": "Coleção de atletas" },
+    "registrations": { "schema": "Registration", "description": "Coleção de inscrições" },
+    "users": { "schema": "User", "description": "Coleção de perfis de usuários" }
+  }
+}
