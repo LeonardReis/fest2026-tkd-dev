@@ -1291,9 +1291,17 @@ function RegistrationsView({ profile, registrations, athletes, academies, receip
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const calculatePrice = (categories: string[]) => {
-    if (categories.length === 0) return 0;
-    if (categories.length === 1) return settings.priceSingle || 100;
-    return (settings.priceSingle || 100) + (categories.length - 1) * (settings.priceAdditional || 50);
+    let total = 0;
+    if (categories.includes('Kyorugui') || categories.includes('Poomsae')) {
+      total += 90;
+    }
+    if (categories.includes('Kyopa (3 tábuas)')) {
+      total += 25;
+    }
+    if (categories.includes('Kyopa (5 tábuas)')) {
+      total += 35;
+    }
+    return total;
   };
 
   const currentPrice = useMemo(() => calculatePrice(formData.categories), [formData.categories, settings]);
@@ -2073,9 +2081,17 @@ function AdminView({ profile, user, registrations, athletes, academies, receipts
   const [adminTab, setAdminTab] = useState<'finance' | 'competition'>('finance');
 
   const calculatePrice = (categories: string[]) => {
-    if (categories.length === 0) return 0;
-    if (categories.length === 1) return settings.priceSingle || 100;
-    return (settings.priceSingle || 100) + (categories.length - 1) * (settings.priceAdditional || 50);
+    let total = 0;
+    if (categories.includes('Kyorugui') || categories.includes('Poomsae')) {
+      total += 90;
+    }
+    if (categories.includes('Kyopa (3 tábuas)')) {
+      total += 25;
+    }
+    if (categories.includes('Kyopa (5 tábuas)')) {
+      total += 35;
+    }
+    return total;
   };
 
   const academyStats = useMemo(() => academies.map(academy => {
