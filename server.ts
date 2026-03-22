@@ -3,6 +3,8 @@ import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { MercadoPagoConfig, Payment, Preference } from 'mercadopago';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import * as dotenv from 'dotenv';
 import { initializeApp, cert } from 'firebase-admin/app';
@@ -30,10 +32,37 @@ try {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = parseInt(process.env.PORT || "8080");
 
-  app.use(cors());
+  app.use(helmet({
+    crossOriginOpenerPolicy: { policy: "unsafe-none" },
+    crossOriginEmbedderPolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://apis.google.com", "https://www.gstatic.com", "https://*.firebaseapp.com", "https://*.googleapis.com"],
+        connectSrc: ["'self'", "https://*.googleapis.com", "https://*.firebaseio.com", "https://*.firebaseapp.com", "https://*.google-analytics.com"],
+        imgSrc: ["'self'", "data:", "https://*.google.com", "https://*.googleapis.com", "https://*.gstatic.com", "https://*.google-analytics.com", "https://www.google.com", "https://lh3.googleusercontent.com", "https://grainy-gradients.vercel.app"],
+        frameSrc: ["'self'", "https://*.firebaseapp.com", "https://*.web.app", "https://*.google.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://www.gstatic.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com", "https://www.gstatic.com"],
+        upgradeInsecureRequests: [],
+      },
+    },
+  }));
+  app.use(cors({
+    origin: process.env.NODE_ENV === "production" ? (process.env.APP_URL || false) : '*',
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'x-signature']
+  }));
   app.use(express.json());
+
+  // Rate Limiter para impedir abusos (DDoS/Força Bruta) na criação de checkouts
+  const paymentLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000, // 10 minutos
+    max: 10, // máximo de 10 boletos/checkouts por IP
+    message: { error: "Muitas tentativas de checkout detectadas. Aguarde 10 minutos." }
+  });
 
   // Initialize Mercado Pago
   const client = new MercadoPagoConfig({ 
@@ -47,7 +76,7 @@ async function startServer() {
   });
 
   // Create Payment Endpoint (Checkout Pro)
-  app.post("/api/payments/create", async (req, res) => {
+  app.post("/api/payments/create", paymentLimiter, async (req, res) => {
     try {
       if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
         return res.status(500).json({ error: "MERCADOPAGO_ACCESS_TOKEN não configurado." });
@@ -74,9 +103,9 @@ async function startServer() {
           external_reference: external_reference, // We pass the academyId here
           // notification_url: `${process.env.APP_URL}/api/payments/webhook`, // Optional: if we have a public URL
           back_urls: {
-            success: `${process.env.APP_URL || 'http://localhost:3000'}/`,
-            failure: `${process.env.APP_URL || 'http://localhost:3000'}/`,
-            pending: `${process.env.APP_URL || 'http://localhost:3000'}/`,
+            success: `${process.env.APP_URL || 'http://localhost:' + PORT}/`,
+            failure: `${process.env.APP_URL || 'http://localhost:' + PORT}/`,
+            pending: `${process.env.APP_URL || 'http://localhost:' + PORT}/`,
           },
           auto_return: 'approved',
         }
@@ -177,7 +206,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
   });
 }
 

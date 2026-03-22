@@ -7,6 +7,8 @@ export interface UserProfile {
   academyId?: string;
   displayName?: string;
   photoURL?: string;
+  birthDate?: string;
+  gender?: 'M' | 'F';
 }
 
 export interface Academy {

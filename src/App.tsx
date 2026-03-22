@@ -48,7 +48,12 @@ import {
   Trash2,
   Edit,
   Camera,
-  MapPin
+  MapPin,
+  CreditCard,
+  FileText,
+  CheckCircle,
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -58,13 +63,46 @@ import { Button, Card, Input, Select, cn } from './components/ui';
 const UNIAO_LOPES_LOGO = "/logo-colombo.png";
 
 const formatWhatsAppNumber = (phone: string) => {
-  let cleaned = phone.replace(/\D/g, '');
-  if (cleaned.startsWith('550')) {
-    cleaned = '55' + cleaned.substring(3);
-  } else if (cleaned.startsWith('0')) {
-    cleaned = cleaned.substring(1);
+  const cleaned = phone.replace(/\D/g, '');
+  return cleaned.length === 11 ? `55${cleaned}` : cleaned;
+};
+
+// --- PIX Generator Helpers ---
+const crc16 = (str: string): string => {
+  let crc = 0xFFFF;
+  for (let i = 0; i < str.length; i++) {
+    crc ^= str.charCodeAt(i) << 8;
+    for (let j = 0; j < 8; j++) {
+      if ((crc & 0x8000) !== 0) {
+        crc = (crc << 1) ^ 0x1021;
+      } else {
+        crc <<= 1;
+      }
+    }
   }
-  return cleaned.startsWith('55') ? cleaned : `55${cleaned}`;
+  return (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
+};
+
+const generatePix = (amount: number, description: string = "Inscrição Fest 2026", txId: string = "***") => {
+  const basePix = "00020126580014BR.GOV.BCB.PIX0136f54e22ce-2771-4a78-a5c3-3dde26d19329520400005303986";
+  const amountStr = amount.toFixed(2);
+  const tag54 = `54${amountStr.length.toString().padStart(2, '0')}${amountStr}`;
+  const country = "5802BR";
+  const merchant = "5913Leonardo Reis6009SAO PAULO";
+  
+  // Tag 62 (Additional Data Field Template)
+  // Sub-tag 05 (Transaction ID)
+  const tag62_05 = `05${txId.length.toString().padStart(2, '0')}${txId}`;
+  
+  // Sub-tag 02 (Description) - Opcional, mas alguns bancos mostram
+  const cleanDescription = description.normalize("NFD").replace(/[\u0300-\u036f]/g, "").substring(0, 25);
+  const tag62_02 = `02${cleanDescription.length.toString().padStart(2, '0')}${cleanDescription}`;
+  
+  const tag62Value = tag62_02 + tag62_05;
+  const tag62 = `62${tag62Value.length.toString().padStart(2, '0')}${tag62Value}`;
+  
+  const payload = basePix + tag54 + country + merchant + tag62 + "6304";
+  return payload + crc16(payload);
 };
 
 // --- Main App ---
@@ -81,6 +119,11 @@ export default function App() {
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [receipts, setReceipts] = useState<any[]>([]);
   const [settings, setSettings] = useState<any>({ mercadoPagoEnabled: true });
+  const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
+
+  useEffect(() => {
+    document.title = "3º Festival União Lopes - Portal";
+  }, []);
 
   // Auth Listener
   useEffect(() => {
@@ -334,16 +377,23 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-stone-50 flex">
+      <div className="min-h-screen bg-stone-950 flex font-sans selection:bg-red-600 selection:text-white overflow-hidden relative">
+        {/* Background Accents */}
+        <div className="fixed inset-0 z-0 pointer-events-none">
+          <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-red-600/10 rounded-full blur-[120px]" />
+          <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[120px]" />
+          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay" />
+        </div>
+
         {/* Sidebar */}
-        <aside className="w-72 bg-white border-r border-stone-200 flex flex-col hidden md:flex">
-          <div className="p-6 border-b border-stone-100 flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-stone-100 shrink-0 bg-white">
-              <img src={settings?.festivalLogo || UNIAO_LOPES_LOGO} alt="Associação Colombo de Taekwondo Logo" className="w-full h-full object-cover" />
+        <aside className="w-72 bg-stone-900/40 backdrop-blur-3xl border-r border-white/5 flex flex-col hidden md:flex z-50">
+          <div className="p-8 border-b border-white/5 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-white/5 p-2 border border-white/10 shadow-xl overflow-hidden shrink-0">
+              <img src={settings?.festivalLogo || UNIAO_LOPES_LOGO} alt="Logo" className="w-full h-full object-contain" />
             </div>
             <div>
-              <h2 className="font-bold text-stone-900 leading-tight">3º Festival</h2>
-              <p className="text-xs text-stone-500 font-medium uppercase tracking-wider">União Lopes 2026</p>
+              <h2 className="font-black text-white leading-tight italic tracking-tight uppercase">3º Festival</h2>
+              <p className="text-[10px] text-red-500 font-black uppercase tracking-[0.2em]">União Lopes</p>
             </div>
           </div>
 
@@ -357,53 +407,81 @@ export default function App() {
             )}
           </nav>
 
-          <div className="p-4 border-t border-stone-100">
+          <div className="p-6 border-t border-white/5 space-y-4">
             <button 
               onClick={() => setView('profile')}
-              className="w-full flex items-center gap-3 p-3 rounded-xl bg-stone-50 mb-4 hover:bg-stone-100 transition-colors text-left"
+              className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-white/5 transition-all text-stone-400 hover:text-white group border border-transparent hover:border-white/10"
             >
-              <img src={profile?.photoURL || user.photoURL || ''} alt="" className="w-10 h-10 rounded-full border border-stone-200 object-cover" />
-              <div className="overflow-hidden">
-                <p className="text-sm font-bold text-stone-900 truncate">{profile?.displayName || user.displayName}</p>
-                <p className="text-xs text-stone-500 truncate">{profile?.email}</p>
+              <div className="w-10 h-10 rounded-xl bg-stone-800 overflow-hidden border border-white/5 shadow-inner">
+                {user?.photoURL && <img src={user.photoURL} alt="User" className="w-full h-full object-cover" />}
+              </div>
+              <div className="text-left overflow-hidden">
+                <p className="text-sm font-black text-white truncate leading-tight uppercase tracking-tighter">{user?.displayName}</p>
+                <p className="text-[10px] text-stone-500 uppercase font-bold tracking-widest">Configurações</p>
               </div>
             </button>
-            <Button variant="ghost" onClick={handleLogout} className="w-full justify-start text-red-600 hover:bg-red-50 hover:text-red-700">
-              <LogOut className="w-5 h-5" /> Sair
-            </Button>
+            <button 
+              onClick={() => signOut(auth)}
+              className="w-full flex items-center gap-3 px-5 py-4 rounded-xl bg-red-600 text-white hover:bg-red-500 transition-all font-black text-[10px] uppercase tracking-[0.2em] shadow-lg shadow-red-600/20"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Sair do Sistema</span>
+            </button>
           </div>
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 flex flex-col min-w-0">
-          <header className="h-20 bg-white border-b border-stone-200 flex items-center justify-between px-8">
-            <h1 className="text-xl font-bold text-stone-900 capitalize">
-              {view === 'dashboard' && 'Visão Geral'}
-              {view === 'academy' && 'Minha Academia'}
-              {view === 'athletes' && 'Atletas'}
-              {view === 'registrations' && 'Inscrições'}
-              {view === 'admin' && 'Administração'}
-              {view === 'profile' && 'Meu Perfil'}
-            </h1>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-bold border border-emerald-100">
-                <CheckCircle2 className="w-4 h-4" /> Sistema Online
-              </div>
-            </div>
-          </header>
+        <main className="flex-1 overflow-y-auto z-40 relative">
+          <div className="p-6 lg:p-12">
+            <div className="max-w-7xl mx-auto space-y-12">
+              <header className="flex items-center justify-between pb-8 border-b border-white/5">
+                <div>
+                  <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter leading-none">
+                    {view === 'dashboard' && 'Visão Geral'}
+                    {view === 'academy' && 'Minha Academia'}
+                    {view === 'athletes' && 'Gestão de Atletas'}
+                    {view === 'registrations' && 'Inscrições Ativas'}
+                    {view === 'admin' && 'Painel Administrativo'}
+                    {view === 'profile' && 'Configurações de Perfil'}
+                  </h1>
+                  <p className="text-stone-500 text-sm font-bold uppercase tracking-widest mt-2 flex items-center gap-2">
+                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                    Portal Fest 2026 • Ambiente Seguro
+                  </p>
+                </div>
+              </header>
 
-          <div className="p-8 overflow-y-auto">
-            <AnimatePresence mode="wait">
-              {view === 'dashboard' && <DashboardView key="dashboard" profile={profile} stats={{ academies: academies.length, athletes: athletes.length, registrations: registrations.length }} settings={settings} />}
-              {view === 'academy' && <AcademyView key="academy" profile={profile} academies={academies} />}
-              {view === 'athletes' && <AthletesView key="athletes" profile={profile} athletes={athletes} academies={academies} registrations={registrations} />}
-              {view === 'registrations' && <RegistrationsView key="registrations" profile={profile} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} />}
-              {view === 'admin' && <AdminView key="admin" profile={profile} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} />}
-              {view === 'profile' && <ProfileView key="profile" profile={profile} user={user} />}
-            </AnimatePresence>
+              <AnimatePresence mode="wait">
+                {view === 'dashboard' && <DashboardView key="dashboard" profile={profile} stats={{ academies: academies.length, athletes: athletes.length, registrations: registrations.length }} settings={settings} />}
+                {view === 'academy' && <AcademyView key="academy" profile={profile} academies={academies} />}
+                {view === 'athletes' && <AthletesView key="athletes" profile={profile} user={user} athletes={athletes} academies={academies} registrations={registrations} />}
+                {view === 'registrations' && <RegistrationsView key="registrations" profile={profile} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} onViewReceipt={setViewingReceipt} />}
+                {view === 'admin' && <AdminView key="admin" profile={profile} user={user} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} onViewReceipt={setViewingReceipt} />}
+                {view === 'profile' && <ProfileView key="profile" profile={profile} user={user} />}
+              </AnimatePresence>
+            </div>
           </div>
         </main>
       </div>
+
+      {viewingReceipt && (
+        <div 
+          className="fixed inset-0 z-[9999] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 md:p-20 transition-all" 
+          onClick={() => setViewingReceipt(null)}
+        >
+          <div className="relative max-w-5xl w-full h-full flex items-center justify-center">
+             <button className="absolute -top-12 right-0 text-white hover:text-red-500 transition-colors flex items-center gap-2 font-black uppercase tracking-widest text-[10px]" onClick={() => setViewingReceipt(null)}>
+               Fechar [X]
+             </button>
+             <img 
+               src={viewingReceipt} 
+               alt="Comprovante" 
+               className="max-w-full max-h-full rounded-2xl shadow-2xl object-contain border border-white/10" 
+               onClick={e => e.stopPropagation()}
+             />
+          </div>
+        </div>
+      )}
     </ErrorBoundary>
   );
 }
@@ -415,14 +493,18 @@ function NavItem({ active, onClick, icon, label }: { active: boolean; onClick: (
     <button
       onClick={onClick}
       className={cn(
-        'w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all',
+        'w-full flex items-center gap-3 px-5 py-4 rounded-2xl text-xs font-black uppercase tracking-widest transition-all group relative overflow-hidden',
         active 
-          ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/10' 
-          : 'text-stone-500 hover:bg-stone-50 hover:text-stone-900'
+          ? 'bg-red-600 text-white shadow-[0_0_20px_rgba(220,38,38,0.3)] border border-red-500/50' 
+          : 'text-stone-400 hover:bg-white/5 hover:text-white border border-transparent hover:border-white/5'
       )}
     >
-      {icon}
-      {label}
+      <span className={cn(
+        "transition-colors relative z-10",
+        active ? "text-white" : "text-stone-500 group-hover:text-red-500"
+      )}>{icon}</span>
+      <span className="relative z-10">{label}</span>
+      {active && <motion.div layoutId="active-nav" className="ml-auto w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_10px_#fff] relative z-10" />}
     </button>
   );
 }
@@ -432,42 +514,48 @@ function DashboardView({ stats, profile, settings, key }: { stats: { academies: 
     <motion.div 
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="space-y-8"
+      className="space-y-12"
     >
       <TributeCard settings={settings} />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard icon={<School className="w-6 h-6" />} label="Academias" value={stats.academies} color="bg-blue-500" />
-        <StatCard icon={<Users className="w-6 h-6" />} label="Atletas Cadastrados" value={stats.athletes} color="bg-emerald-500" />
-        <StatCard icon={<Trophy className="w-6 h-6" />} label="Inscrições Ativas" value={stats.registrations} color="bg-amber-500" />
+        <StatCard icon={<School className="w-6 h-6" />} label="Academias" value={stats.academies} color="from-blue-600 to-blue-400" />
+        <StatCard icon={<Users className="w-6 h-6" />} label="Atletas Cadastrados" value={stats.athletes} color="from-emerald-600 to-emerald-400" />
+        <StatCard icon={<Trophy className="w-6 h-6" />} label="Inscrições Ativas" value={stats.registrations} color="from-amber-600 to-amber-400" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <Card className="p-6">
-          <h3 className="text-lg font-bold text-stone-900 mb-4">Próximos Passos</h3>
-          <div className="space-y-4">
-            <StepItem done={stats.academies > 0} label="Cadastrar sua Academia" description="Defina o nome e mestre responsável." />
-            <StepItem done={stats.athletes > 0} label="Cadastrar Atletas" description="Adicione os alunos que irão participar." />
-            <StepItem done={stats.registrations > 0} label="Realizar Inscrições" description="Escolha as categorias para cada atleta." />
+        <Card className="p-8 border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent">
+          <h3 className="text-xl font-black text-white italic uppercase tracking-tighter mb-6">Próximos Passos</h3>
+          <div className="space-y-6">
+            <StepItem done={stats.academies > 0} label="Cadastrar sua Academia" description="Defina o nome e mestre responsável no menu 'Minha Academia'." />
+            <StepItem done={stats.athletes > 0} label="Cadastrar Atletas" description="Adicione os alunos que irão participar no menu 'Atletas'." />
+            <StepItem done={stats.registrations > 0} label="Realizar Inscrições" description="Escolha as categorias para cada atleta no menu 'Inscrições'." />
           </div>
         </Card>
 
-        <Card className="p-6 bg-stone-900 text-white border-none">
-          <h3 className="text-lg font-bold mb-2">Informações do Festival</h3>
-          <p className="text-stone-400 text-sm mb-6">3º Festival União Lopes Taekwondo e Filiados 2026</p>
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <Calendar className="w-5 h-5 text-red-500" />
+        <Card className="p-8 bg-stone-900/60 border-red-600/20 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-red-600/5 rounded-full blur-3xl group-hover:bg-red-600/10 transition-colors" />
+          <h3 className="text-xl font-black text-white italic uppercase tracking-tighter mb-2">Informações do Festival</h3>
+          <p className="text-red-500 text-[10px] font-black uppercase tracking-[0.2em] mb-8">3º Festival União Lopes 2026</p>
+          
+          <div className="space-y-6">
+            <div className="flex items-center gap-4 group/item">
+              <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10 group-hover/item:border-red-500/50 transition-colors">
+                <Calendar className="w-5 h-5 text-red-500" />
+              </div>
               <div>
-                <p className="text-sm font-bold">12 de Abril (Domingo)</p>
-                <p className="text-xs text-stone-400">Das 08:00 às 19:00</p>
+                <p className="text-sm font-black text-white uppercase tracking-tight">12 de Abril, 2026</p>
+                <p className="text-[10px] text-stone-500 uppercase font-bold tracking-widest">Domingo • 08:00 às 19:00</p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <Shield className="text-blue-500 w-5 h-5" />
+            <div className="flex items-center gap-4 group/item">
+              <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10 group-hover/item:border-blue-500/50 transition-colors">
+                <Shield className="text-blue-500 w-5 h-5" />
+              </div>
               <div>
-                <p className="text-sm font-bold">Colégio Estadual Cívico-Militar Alfredo Chaves</p>
-                <p className="text-xs text-stone-400">R. Budapeste, 8 - Rio Verde, Colombo</p>
+                <p className="text-sm font-black text-white uppercase tracking-tight">C. E. Cívico-Militar Alfredo Chaves</p>
+                <p className="text-[10px] text-stone-500 uppercase font-bold tracking-widest">Colombo, PR • Rio Verde</p>
               </div>
             </div>
           </div>
@@ -479,13 +567,13 @@ function DashboardView({ stats, profile, settings, key }: { stats: { academies: 
 
 function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
   return (
-    <Card className="p-6 flex items-center gap-6">
-      <div className={cn('w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg', color)}>
+    <Card className="p-6 flex items-center gap-6 group hover:border-white/10 transition-colors">
+      <div className={cn('w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-2xl bg-gradient-to-br', color)}>
         {icon}
       </div>
       <div>
-        <p className="text-sm font-medium text-stone-500">{label}</p>
-        <p className="text-3xl font-bold text-stone-900">{value}</p>
+        <p className="text-[10px] font-black text-stone-500 uppercase tracking-[0.2em] mb-1">{label}</p>
+        <p className="text-4xl font-black text-white tracking-tighter">{value}</p>
       </div>
     </Card>
   );
@@ -495,25 +583,28 @@ function TributeCard({ settings }: { settings?: any }) {
   const tributeImage = settings?.tributeImage || "/tribute.jpg";
   
   return (
-    <Card className="p-6 bg-gradient-to-br from-stone-900 to-stone-800 text-white border-stone-700 relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-32 h-32 bg-red-600/20 rounded-full blur-3xl -mr-10 -mt-10" />
-      <div className="relative z-10 flex flex-col sm:flex-row gap-6 items-center sm:items-start text-center sm:text-left">
-        <div className="w-24 h-24 shrink-0 rounded-full overflow-hidden border-2 border-red-600/50 shadow-[0_0_15px_rgba(220,38,38,0.3)]">
-          <img 
-            src={tributeImage}
-            alt="Taekwondo Tribute" 
-            className="w-full h-full object-cover"
-          />
-        </div>
-        <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-stone-800 border border-stone-700 text-xs font-bold text-stone-300 uppercase tracking-wider mb-1">
-            <Trophy className="w-3 h-3 text-amber-500" />
-            Lenda do Taekwondo
+    <Card className="p-8 bg-black/40 border-white/5 relative overflow-hidden group">
+      <div className="absolute top-0 right-0 w-64 h-64 bg-red-600/10 rounded-full blur-[100px] -mr-32 -mt-32 group-hover:bg-red-600/20 transition-all duration-700" />
+      <div className="relative z-10 flex flex-col md:flex-row gap-8 items-center md:items-start">
+        <div className="relative">
+          <div className="absolute inset-0 bg-red-600/20 rounded-full blur-2xl animate-pulse" />
+          <div className="w-32 h-32 shrink-0 rounded-full overflow-hidden border-2 border-red-500/50 shadow-[0_0_30px_rgba(220,38,38,0.3)] relative z-10">
+            <img 
+              src={tributeImage}
+              alt="Homenagem" 
+              className="w-full h-full object-cover scale-110 group-hover:scale-125 transition-transform duration-700"
+            />
           </div>
-          <h3 className="text-xl font-bold text-white italic tracking-tight uppercase">Chuck Norris</h3>
-          <p className="text-stone-400 text-sm font-medium">Homenagem ao Legado</p>
-          <p className="text-stone-300 text-sm leading-relaxed mt-2">
-            Um dos maiores embaixadores do Taekwondo, que ajudou a popularizar nossa arte marcial globalmente. Seu legado viverá para sempre nos tatames e na história das artes marciais.
+        </div>
+        <div className="space-y-4 text-center md:text-left">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-600/10 border border-red-500/20 text-[10px] font-black text-red-500 uppercase tracking-[0.2em]">
+            <Trophy className="w-3 h-3" />
+            Homenagem Especial
+          </div>
+          <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Mestre Chuck Norris</h3>
+          <p className="text-stone-400 text-sm font-bold uppercase tracking-[0.1em]">O Legado Indomável • Embaixador Global</p>
+          <p className="text-stone-300 text-sm leading-relaxed max-w-2xl font-medium opacity-80">
+            "O Taekwondo não é apenas luta, é o desenvolvimento da mente e do espírito." Homenageamos aquele que elevou nossa arte ao cenário mundial com honra, disciplina e o verdadeiro espírito marcial.
           </p>
         </div>
       </div>
@@ -523,16 +614,18 @@ function TributeCard({ settings }: { settings?: any }) {
 
 function StepItem({ done, label, description }: { done: boolean; label: string; description: string }) {
   return (
-    <div className="flex gap-4">
+    <div className="flex gap-5 group/step">
       <div className={cn(
-        'w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-1',
-        done ? 'bg-emerald-100 text-emerald-600' : 'bg-stone-100 text-stone-400'
+        'w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-300',
+        done 
+          ? 'bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' 
+          : 'bg-white/5 text-stone-600 border border-white/10 group-hover/step:border-white/20'
       )}>
-        {done ? <CheckCircle2 className="w-4 h-4" /> : <div className="w-2 h-2 rounded-full bg-current" />}
+        {done ? <CheckCircle2 className="w-5 h-5" /> : <div className="w-2 h-2 rounded-full bg-stone-700" />}
       </div>
       <div>
-        <p className={cn('text-sm font-bold', done ? 'text-stone-400 line-through' : 'text-stone-900')}>{label}</p>
-        <p className="text-xs text-stone-500">{description}</p>
+        <p className={cn('text-sm font-black uppercase tracking-tight transition-colors', done ? 'text-stone-500 line-through' : 'text-white')}>{label}</p>
+        <p className="text-xs text-stone-500 font-bold uppercase tracking-widest mt-1">{description}</p>
       </div>
     </div>
   );
@@ -606,35 +699,44 @@ function AcademyView({ profile, academies, key }: { profile: UserProfile | null;
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Gestão de Academias</h2>
-        {!isAdding && academies.length === 0 && (
-          <Button onClick={() => setIsAdding(true)}><Plus className="w-5 h-5" /> Nova Academia</Button>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
+      <header className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-black text-white italic uppercase tracking-tighter">Minha Academia</h2>
+          <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Gerencie os dados da sua equipe</p>
+        </div>
+        {!isAdding && (
+          <Button onClick={() => setIsAdding(true)} variant="primary" className="flex items-center gap-2">
+            <Plus className="w-5 h-5" /> 
+            <span>Nova Academia</span>
+          </Button>
         )}
-      </div>
+      </header>
 
       {isAdding ? (
-        <Card className="p-8 max-w-2xl mx-auto">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <h3 className="text-xl font-bold mb-4">{editingId ? 'Editar Academia' : 'Cadastrar Academia'}</h3>
+        <Card className="p-8 max-w-2xl mx-auto border-white/5 shadow-red-600/5">
+          <form onSubmit={handleSubmit} className="space-y-8">
+            <h3 className="text-xl font-black text-white italic uppercase tracking-tighter border-b border-white/5 pb-4">
+              {editingId ? 'Editar Detalhes' : 'Nova Inscrição de Academia'}
+            </h3>
             
-            <div className="flex flex-col items-center gap-4 mb-6">
-              <div className="relative">
+            <div className="flex flex-col items-center gap-4 mb-8">
+              <div className="relative group/photo">
+                <div className="absolute inset-0 bg-red-600/20 rounded-full blur-2xl opacity-0 group-hover/photo:opacity-100 transition-opacity" />
                 {formData.logo ? (
-                  <img src={formData.logo} alt="Logo da Academia" className="w-24 h-24 rounded-full border-4 border-white shadow-lg object-cover bg-stone-100" />
+                  <img src={formData.logo} alt="Logo" className="w-32 h-32 rounded-3xl border-2 border-white/10 shadow-2xl object-cover bg-white/5 relative z-10" />
                 ) : (
-                  <div className="w-24 h-24 rounded-full border-4 border-white shadow-lg bg-stone-100 flex items-center justify-center">
-                    <School className="w-8 h-8 text-stone-300" />
+                  <div className="w-32 h-32 rounded-3xl border-2 border-white/10 shadow-2xl bg-white/5 flex items-center justify-center relative z-10">
+                    <School className="w-12 h-12 text-stone-700" />
                   </div>
                 )}
                 <button 
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="absolute bottom-0 right-0 p-2 bg-blue-600 text-white rounded-full shadow-md hover:bg-blue-700 transition-colors"
+                  className="absolute -bottom-2 -right-2 p-3 bg-red-600 text-white rounded-2xl shadow-xl hover:bg-red-500 transition-all z-20 hover:scale-110 active:scale-90"
                   disabled={isUploading}
                 >
-                  <Camera className="w-4 h-4" />
+                  <Camera className="w-5 h-5" />
                 </button>
                 <input 
                   type="file" 
@@ -644,60 +746,63 @@ function AcademyView({ profile, academies, key }: { profile: UserProfile | null;
                   onChange={handlePhotoUpload}
                 />
               </div>
-              <p className="text-xs text-stone-500">Logo da Academia (Opcional)</p>
+              <p className="text-[10px] text-stone-500 font-black uppercase tracking-widest">Escudo da Academia</p>
             </div>
 
-            <Select 
-              label="Academia" 
-              options={PREDEFINED_ACADEMIES} 
-              value={isCustomName ? 'Outra' : formData.name}
-              onChange={e => {
-                const val = e.target.value;
-                if (val === 'Outra') {
-                  setIsCustomName(true);
-                  setFormData({ ...formData, name: '' });
-                } else {
-                  setIsCustomName(false);
-                  setFormData({ ...formData, name: val });
-                }
-              }}
-              required
-            />
-
-            {isCustomName && (
-              <Input 
-                label="Nome da Academia (Personalizado)" 
-                placeholder="Ex: União Lopes Matriz" 
-                value={formData.name}
-                onChange={e => setFormData({ ...formData, name: e.target.value })}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Select 
+                label="Academia" 
+                options={PREDEFINED_ACADEMIES} 
+                value={isCustomName ? 'Outra' : formData.name}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (val === 'Outra') {
+                    setIsCustomName(true);
+                    setFormData({ ...formData, name: '' });
+                  } else {
+                    setIsCustomName(false);
+                    setFormData({ ...formData, name: val });
+                  }
+                }}
                 required
               />
-            )}
 
-            <Input 
-              label="Técnico Responsável pela Equipe" 
-              placeholder="Nome do Técnico" 
-              value={formData.coach}
-              onChange={e => setFormData({ ...formData, coach: e.target.value })}
-              required
-            />
-            <Input 
-              label="Contato WhatsApp (Gestão/Técnico)" 
-              placeholder="(00) 00000-0000" 
-              value={formData.contact}
-              onChange={e => setFormData({ ...formData, contact: e.target.value })}
-              required
-            />
-            <Input 
-              label="Mestre Responsável" 
-              placeholder="Nome do Mestre" 
-              value={formData.master}
-              onChange={e => setFormData({ ...formData, master: e.target.value })}
-              required
-            />
-            <div className="flex gap-4 pt-4">
-              <Button type="submit" className="flex-1">{editingId ? 'Salvar Alterações' : 'Salvar Academia'}</Button>
-              <Button type="button" variant="secondary" onClick={() => {
+              {isCustomName && (
+                <Input 
+                  label="Nome Personalizado" 
+                  placeholder="Ex: União Lopes Matriz" 
+                  value={formData.name}
+                  onChange={e => setFormData({ ...formData, name: e.target.value })}
+                  required
+                />
+              )}
+
+              <Input 
+                label="Técnico Responsável" 
+                placeholder="Nome do Técnico" 
+                value={formData.coach}
+                onChange={e => setFormData({ ...formData, coach: e.target.value })}
+                required
+              />
+              <Input 
+                label="WhatsApp de Contato" 
+                placeholder="(00) 00000-0000" 
+                value={formData.contact}
+                onChange={e => setFormData({ ...formData, contact: e.target.value })}
+                required
+              />
+              <Input 
+                label="Mestre Responsável" 
+                placeholder="Nome do Mestre" 
+                value={formData.master}
+                onChange={e => setFormData({ ...formData, master: e.target.value })}
+                required
+              />
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-white/5">
+              <Button type="submit" className="flex-1 py-4 text-sm">{editingId ? 'Salvar Alterações' : 'Confirmar Cadastro'}</Button>
+              <Button type="button" variant="secondary" className="flex-1 py-4 text-sm" onClick={() => {
                 setIsAdding(false);
                 setEditingId(null);
                 setFormData({ name: '', coach: '', master: '', contact: '', logo: '' });
@@ -705,48 +810,72 @@ function AcademyView({ profile, academies, key }: { profile: UserProfile | null;
               }}>Cancelar</Button>
             </div>
             
-            <div className="pt-4 border-t border-stone-100 flex justify-center">
-              <Button 
+            <div className="pt-4 flex justify-center">
+              <button 
                 type="button" 
-                variant="ghost" 
-                className="text-xs text-stone-500 hover:text-stone-900"
+                className="text-[10px] font-black text-stone-600 hover:text-red-500 transition-colors uppercase tracking-[0.2em]"
                 onClick={() => setFormData(prev => ({ ...prev, logo: UNIAO_LOPES_LOGO }))}
               >
-                Usar Logo Padrão (Associação Colombo)
-              </Button>
+                Resetar para Logo Oficial Festival
+              </button>
             </div>
           </form>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {academies.map(academy => (
-            <Card key={academy.id} className="p-6 space-y-4">
-              <div className="flex justify-between items-start">
-                {academy.logo ? (
-                  <img src={academy.logo} alt={academy.name} className="w-12 h-12 rounded-xl object-cover bg-stone-100" />
-                ) : (
-                  <div className="w-12 h-12 bg-stone-100 rounded-xl flex items-center justify-center">
-                    <School className="w-6 h-6 text-stone-600" />
+            <Card key={academy.id} className="p-8 group hover:border-red-600/30 transition-all duration-500 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-red-600/5 rounded-full blur-3xl group-hover:bg-red-600/10 transition-colors" />
+              <div className="relative z-10">
+                <div className="flex justify-between items-start mb-6">
+                  <div className="flex gap-4 items-center">
+                    {academy.logo ? (
+                      <img src={academy.logo} alt={academy.name} className="w-20 h-20 rounded-2xl object-cover bg-white/5 border border-white/10 p-1 shadow-2xl" />
+                    ) : (
+                      <div className="w-20 h-20 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center p-1 shadow-2xl">
+                        <School className="w-10 h-10 text-stone-700" />
+                      </div>
+                    )}
+                    <div>
+                      <h4 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">{academy.name}</h4>
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                        <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest italic">Academia Ativa</span>
+                      </div>
+                    </div>
                   </div>
-                )}
-                <div className="flex gap-2">
-                  <Button variant="ghost" className="p-2 h-auto" onClick={() => handleEdit(academy)}><Edit className="w-4 h-4" /></Button>
+                  <Button variant="ghost" className="p-3 bg-white/5 hover:bg-red-600/20 group/edit" onClick={() => handleEdit(academy)}>
+                    <Edit className="w-4 h-4 group-hover/edit:text-red-500 transition-colors" />
+                  </Button>
                 </div>
-              </div>
-              <div>
-                <h4 className="text-lg font-bold text-stone-900">{academy.name}</h4>
-                <p className="text-sm text-stone-500">Técnico: {academy.coach}</p>
-                <p className="text-sm text-stone-500">Mestre: {academy.master}</p>
-                <p className="text-sm text-stone-500">Contato: {academy.contact}</p>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-8 p-4 bg-white/[0.02] rounded-2xl border border-white/5">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Técnico Principal</p>
+                    <p className="text-sm font-bold text-white uppercase">{academy.coach}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Mestre Responsável</p>
+                    <p className="text-sm font-bold text-white uppercase">{academy.master}</p>
+                  </div>
+                  <div className="col-span-full space-y-1">
+                    <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest">WhatsApp / Contato</p>
+                    <p className="text-sm font-bold text-white">{academy.contact}</p>
+                  </div>
+                </div>
               </div>
             </Card>
           ))}
           {academies.length === 0 && (
-            <div className="col-span-full py-20 text-center space-y-4">
-              <div className="w-20 h-20 bg-stone-100 rounded-full mx-auto flex items-center justify-center">
-                <School className="w-10 h-10 text-stone-300" />
+            <div className="col-span-full py-32 rounded-3xl border-2 border-dashed border-white/5 flex flex-col items-center justify-center gap-6 group hover:border-white/10 transition-colors">
+              <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center border border-white/5 group-hover:scale-110 transition-transform duration-500">
+                <School className="w-10 h-10 text-stone-700" />
               </div>
-              <p className="text-stone-500">Nenhuma academia cadastrada ainda.</p>
+              <div className="text-center space-y-2">
+                <p className="text-xl font-black text-white italic uppercase tracking-tighter">Nenhuma Academia</p>
+                <p className="text-[10px] text-stone-600 uppercase font-black tracking-widest">Clique em "Nova Academia" para começar</p>
+              </div>
+              <Button onClick={() => setIsAdding(true)} variant="primary" className="px-10 py-4"><Plus className="w-5 h-5" /> Cadastrar agora</Button>
             </div>
           )}
         </div>
@@ -800,61 +929,58 @@ const BELT_OPTIONS = [
   { value: '10º Dan - Preta', label: '10º Dan - Preta' },
 ];
 
-function BeltBadge({ belt }: { belt: string }) {
+function BeltBadge({ belt, size = 'md' }: { belt: string; size?: 'sm' | 'md' | 'lg' }) {
   let style: React.CSSProperties = {};
-  let className = "px-2 py-1 rounded text-xs font-bold inline-flex items-center gap-1.5 ";
+  let className = "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-1.5 border ";
   
-  // Faixas antigas (transição)
+  // Custom Gradients for striped belts
   if (belt.includes('Branca/Amarela')) {
-    style = { background: 'linear-gradient(90deg, #ffffff 50%, #facc15 50%)', color: '#1c1917', border: '1px solid #e7e5e4' };
+    style = { background: 'linear-gradient(90deg, #ffffff 50%, #facc15 50%)', color: '#000', borderColor: 'rgba(255,255,255,0.2)' };
   } else if (belt.includes('Amarela/Verde')) {
-    style = { background: 'linear-gradient(90deg, #facc15 50%, #22c55e 50%)', color: '#1c1917' };
+    style = { background: 'linear-gradient(90deg, #facc15 50%, #22c55e 50%)', color: '#000', borderColor: 'rgba(255,255,255,0.2)' };
   } else if (belt.includes('Verde/Azul')) {
-    style = { background: 'linear-gradient(90deg, #22c55e 50%, #3b82f6 50%)', color: '#ffffff' };
+    style = { background: 'linear-gradient(90deg, #22c55e 50%, #3b82f6 50%)', color: '#fff', borderColor: 'rgba(255,255,255,0.2)' };
   } else if (belt.includes('Azul/Vermelha')) {
-    style = { background: 'linear-gradient(90deg, #3b82f6 50%, #ef4444 50%)', color: '#ffffff' };
+    style = { background: 'linear-gradient(90deg, #3b82f6 50%, #ef4444 50%)', color: '#fff', borderColor: 'rgba(255,255,255,0.2)' };
   } else if (belt.includes('Vermelha/Preta')) {
-    style = { background: 'linear-gradient(90deg, #ef4444 50%, #000000 50%)', color: '#ffffff' };
+    style = { background: 'linear-gradient(90deg, #ef4444 50%, #000000 50%)', color: '#fff', borderColor: 'rgba(255,255,255,0.2)' };
   } 
-  // Novas faixas
+  // Solid belts
   else if (belt.includes('Branca')) {
-    className += 'bg-white text-stone-800 border border-stone-200 shadow-sm';
+    className += 'bg-white text-black border-white/20';
   } else if (belt.includes('Cinza')) {
-    className += 'bg-gray-300 text-stone-800';
+    className += 'bg-stone-500 text-white border-white/10';
   } else if (belt.includes('Amarela')) {
-    className += 'bg-yellow-400 text-stone-900';
+    className += 'bg-yellow-400 text-black border-yellow-500/50';
   } else if (belt.includes('Laranja')) {
-    className += 'bg-orange-500 text-white';
+    className += 'bg-orange-500 text-white border-orange-600/50';
   } else if (belt.includes('Verde Claro')) {
-    className += 'bg-green-400 text-stone-900';
+    className += 'bg-emerald-400 text-black border-emerald-500/50';
   } else if (belt.includes('Verde Escuro')) {
-    className += 'bg-green-800 text-white';
-  } else if (belt.includes('Verde')) {
-    className += 'bg-green-500 text-white'; // fallback antiga
+    className += 'bg-emerald-900 text-white border-emerald-800/50';
   } else if (belt.includes('Azul Claro')) {
-    className += 'bg-sky-400 text-stone-900';
+    className += 'bg-sky-400 text-black border-sky-500/50';
   } else if (belt.includes('Azul Escuro')) {
-    className += 'bg-blue-900 text-white';
-  } else if (belt.includes('Azul')) {
-    className += 'bg-blue-500 text-white'; // fallback antiga
+    className += 'bg-blue-800 text-white border-blue-700/50';
   } else if (belt.includes('Vermelha Escura') || belt.includes('Bordô')) {
-    className += 'bg-red-900 text-white';
+    className += 'bg-red-900 text-white border-red-800/50';
   } else if (belt.includes('Vermelha')) {
-    className += 'bg-red-500 text-white';
+    className += 'bg-red-600 text-white border-red-500/50';
   } else if (belt.includes('Preta')) {
-    className += 'bg-black text-white';
+    className += 'bg-stone-950 text-white border-white/20 shadow-[0_0_10px_rgba(255,255,255,0.1)]';
   } else {
-    className += 'bg-stone-100 text-stone-700';
+    className += 'bg-white/5 text-stone-400 border-white/5';
   }
 
   return (
     <span className={className} style={style}>
+      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50" />
       {belt}
     </span>
   );
 }
 
-function AthletesView({ profile, athletes, academies, registrations, key }: { profile: UserProfile | null; athletes: Athlete[]; academies: Academy[]; registrations: Registration[]; key?: string }) {
+function AthletesView({ profile, user, athletes, academies, registrations, key }: { profile: UserProfile | null; user: User | null; athletes: Athlete[]; academies: Academy[]; registrations: Registration[]; key?: string }) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -899,12 +1025,11 @@ function AthletesView({ profile, athletes, academies, registrations, key }: { pr
     if (!profile) return;
     try {
       if (editingId) {
-        // Verifica se há inscrições e se houve mudança de dados organizacionais
         const hasRegistrations = registrations.some(r => r.athleteId === editingId);
         if (hasRegistrations) {
             const original = athletes.find(a => a.id === editingId);
             if (original && (original.birthDate !== formData.birthDate || original.gender !== formData.gender || original.weight !== formData.weight)) {
-                if (!window.confirm("ATENÇÃO: Este atleta possui inscrições ativas.\n\nA alteração de Nascimento, Gênero ou Peso pode afetar o enquadramento em categorias (Chaves).\n\nDeseja forçar a edição?")) {
+                if (!window.confirm("ATENÇÃO: Este atleta possui inscrições ativas.\n\nA alteração de Nascimento, Gênero ou Peso pode afetar o enquadramento em categorias.\n\nDeseja forçar a edição?")) {
                     return;
                 }
             }
@@ -941,11 +1066,11 @@ function AthletesView({ profile, athletes, academies, registrations, key }: { pr
   const handleDelete = async (id: string) => {
     const athleteRegs = registrations.filter(r => r.athleteId === id);
     if (athleteRegs.length > 0) {
-      alert(`BLINDAGEM DO SISTEMA\nEste atleta possui ${athleteRegs.length} inscrição(ões) salva(s) no sistema.\nNão é possível excluí-lo diretamente.`);
+      alert(`SISTEMA DE SEGURANÇA\nEste atleta possui ${athleteRegs.length} inscrição(ões) ativa(s).\nRemova as inscrições antes de excluir o atleta.`);
       return;
     }
 
-    if (window.confirm('Tem certeza que deseja excluir este atleta?')) {
+    if (window.confirm('Confirmar exclusão permanente deste atleta?')) {
       try {
         await deleteDoc(doc(db, 'athletes', id));
       } catch (error) {
@@ -955,62 +1080,70 @@ function AthletesView({ profile, athletes, academies, registrations, key }: { pr
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Gestão de Atletas</h2>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
+      <header className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-black text-white italic uppercase tracking-tighter">Gestão de Atletas</h2>
+          <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Inscreva e organize seus competidores</p>
+        </div>
         {!isAdding && (
-          <Button onClick={() => setIsAdding(true)}><Plus className="w-5 h-5" /> Novo Atleta</Button>
+          <Button onClick={() => setIsAdding(true)} variant="primary" className="shadow-red-600/20">
+            <Plus className="w-5 h-5" /> Novo Atleta
+          </Button>
         )}
-      </div>
+      </header>
 
       {isAdding ? (
-        <Card className="p-8 max-w-2xl mx-auto">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold">{editingId ? 'Editar Atleta' : 'Cadastrar Atleta'}</h3>
+        <Card className="p-8 max-w-2xl mx-auto border-white/5 shadow-2xl">
+          <form onSubmit={handleSubmit} className="space-y-8">
+            <div className="flex justify-between items-center border-b border-white/5 pb-4">
+              <h3 className="text-xl font-black text-white italic uppercase tracking-tighter">
+                {editingId ? 'Editar Cadastro' : 'Novo Competidor'}
+              </h3>
               {!editingId && profile?.displayName && (
-                <Button 
+                <button 
                   type="button" 
-                  variant="secondary" 
-                  className="text-xs py-1 px-3 h-auto"
-                  onClick={() => setFormData(prev => ({ ...prev, name: profile.displayName || '', avatar: profile.photoURL || '' }))}
+                  className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:text-red-400 transition-colors"
+                  onClick={() => setFormData(prev => ({ 
+                    ...prev, 
+                    name: profile.displayName || user?.displayName || '', 
+                    avatar: profile.photoURL || user?.photoURL || '',
+                    birthDate: profile.birthDate || '',
+                    gender: profile.gender || 'M'
+                  }))}
                 >
-                  Sou eu mesmo (Usar meu nome)
-                </Button>
+                  Usar meu Perfil
+                </button>
               )}
             </div>
 
-            <div className="flex flex-col items-center gap-4 mb-6">
-              <div className="relative">
+            <div className="flex flex-col items-center gap-4">
+              <div className="relative group/photo">
+                <div className="absolute inset-0 bg-red-600/10 rounded-full blur-2xl opacity-0 group-hover/photo:opacity-100 transition-opacity" />
                 {formData.avatar ? (
-                  <img src={formData.avatar} alt="Avatar" className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-lg" />
+                  <img src={formData.avatar} alt="Avatar" className="w-32 h-32 rounded-3xl object-cover border-2 border-white/10 shadow-2xl relative z-10" />
                 ) : (
-                  <div className="w-24 h-24 rounded-full bg-stone-100 border-4 border-white shadow-lg flex items-center justify-center">
-                    <UserPlus className="w-8 h-8 text-stone-400" />
+                  <div className="w-32 h-32 rounded-3xl bg-white/5 border-2 border-white/10 shadow-2xl flex items-center justify-center relative z-10">
+                    <UserPlus className="w-12 h-12 text-stone-700" />
                   </div>
                 )}
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isUploading}
-                  className="absolute bottom-0 right-0 p-2 bg-stone-900 text-white rounded-full hover:bg-stone-800 transition-colors shadow-md disabled:opacity-50"
-                  title="Alterar foto"
+                  className="absolute -bottom-2 -right-2 p-3 bg-red-600 text-white rounded-2xl hover:bg-red-500 transition-all z-20 hover:scale-110 shadow-xl"
                 >
-                  <Camera className="w-4 h-4" />
+                  <Camera className="w-5 h-5" />
                 </button>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handlePhotoUpload}
-                  accept="image/*"
-                  className="hidden"
-                />
+                <input type="file" ref={fileInputRef} onChange={handlePhotoUpload} accept="image/*" className="hidden" />
               </div>
-              <p className="text-xs text-stone-500">Foto do Atleta (Opcional)</p>
+              <p className="text-[10px] text-stone-500 font-black uppercase tracking-widest">Foto de Identificação</p>
             </div>
 
-            <Input label="Nome Completo" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="md:col-span-2">
+                <Input label="Nome Completo" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
+              </div>
               <Input label="Data de Nascimento" type="date" value={formData.birthDate} onChange={e => setFormData({ ...formData, birthDate: e.target.value })} required />
               <Select 
                 label="Gênero" 
@@ -1019,27 +1152,28 @@ function AthletesView({ profile, athletes, academies, registrations, key }: { pr
                 onChange={e => setFormData({ ...formData, gender: e.target.value as 'M' | 'F' })}
                 required
               />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
               <Select 
-                label="Faixa" 
+                label="Graduação (Faixa)" 
                 options={BELT_OPTIONS} 
                 value={formData.belt}
                 onChange={e => setFormData({ ...formData, belt: e.target.value })}
                 required
               />
-              <Input label="Peso (kg)" type="number" step="0.1" value={formData.weight} onChange={e => setFormData({ ...formData, weight: Number(e.target.value) })} required />
+              <Input label="Peso Atual (kg)" type="number" step="0.1" value={formData.weight} onChange={e => setFormData({ ...formData, weight: Number(e.target.value) })} required />
+              <div className="md:col-span-2">
+                <Select 
+                  label="Academia / Equipe" 
+                  options={academies.map(a => ({ value: a.id, label: a.name }))} 
+                  value={formData.academyId}
+                  onChange={e => setFormData({ ...formData, academyId: e.target.value })}
+                  required
+                />
+              </div>
             </div>
-            <Select 
-              label="Academia" 
-              options={academies.map(a => ({ value: a.id, label: a.name }))} 
-              value={formData.academyId}
-              onChange={e => setFormData({ ...formData, academyId: e.target.value })}
-              required
-            />
-            <div className="flex gap-4 pt-4">
-              <Button type="submit" className="flex-1">{editingId ? 'Salvar Alterações' : 'Salvar Atleta'}</Button>
-              <Button type="button" variant="secondary" onClick={() => {
+
+            <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-white/5">
+              <Button type="submit" className="flex-1 py-4 text-sm">{editingId ? 'Salvar Alterações' : 'Confirmar Atleta'}</Button>
+              <Button type="button" variant="secondary" className="flex-1 py-4 text-sm" onClick={() => {
                 setIsAdding(false);
                 setEditingId(null);
                 setFormData({ name: '', birthDate: '', gender: 'M', belt: '', weight: 0, academyId: '', avatar: '' });
@@ -1048,89 +1182,121 @@ function AthletesView({ profile, athletes, academies, registrations, key }: { pr
           </form>
         </Card>
       ) : (
-        <Card className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-stone-50 border-b border-stone-200">
-                <th className="px-6 py-4 text-xs font-bold text-stone-500 uppercase tracking-wider">Atleta</th>
-                <th className="px-6 py-4 text-xs font-bold text-stone-500 uppercase tracking-wider">Categoria Oficial</th>
-                <th className="px-6 py-4 text-xs font-bold text-stone-500 uppercase tracking-wider">Graduação</th>
-                <th className="px-6 py-4 text-xs font-bold text-stone-500 uppercase tracking-wider">Peso</th>
-                <th className="px-6 py-4 text-xs font-bold text-stone-500 uppercase tracking-wider">Academia</th>
-                <th className="px-6 py-4 text-xs font-bold text-stone-500 uppercase tracking-wider">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-100">
-              {athletes.map(athlete => {
-                const ageCat = getAgeCategory(athlete.birthDate, athlete.belt);
-                const weightCat = getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt);
-                return (
-                <tr key={athlete.id} className="hover:bg-stone-50 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      {athlete.avatar ? (
-                        <img src={athlete.avatar} alt={athlete.name} className="w-10 h-10 rounded-full object-cover border border-stone-200" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-stone-100 flex items-center justify-center text-stone-400 font-bold text-sm border border-stone-200">
-                          {athlete.name.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold text-stone-900">{athlete.name}</p>
-                          {athlete.createdBy === profile?.uid && athlete.name === profile?.displayName && (
-                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded uppercase tracking-wider">Você</span>
+        <Card className="border-white/5 bg-white/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[800px]">
+              <thead>
+                <tr className="bg-white/5 border-b border-white/5">
+                  <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Competidor</th>
+                  <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Categoria Oficial</th>
+                  <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Graduação</th>
+                  <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Peso</th>
+                  <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Equipe</th>
+                  <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em] text-center">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {athletes.map(athlete => {
+                  const ageCat = getAgeCategory(athlete.birthDate, athlete.belt);
+                  const weightCat = getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt);
+                  return (
+                  <tr key={athlete.id} className="hover:bg-white/[0.03] transition-colors group/row">
+                    <td className="px-8 py-6">
+                      <div className="flex items-center gap-4">
+                        <div className="relative">
+                          <div className="absolute inset-0 bg-red-600/20 rounded-2xl blur-lg opacity-0 group-hover/row:opacity-100 transition-opacity" />
+                          {athlete.avatar ? (
+                            <img src={athlete.avatar} alt={athlete.name} className="w-12 h-12 rounded-2xl object-cover border border-white/10 relative z-10 p-0.5 shadow-xl" />
+                          ) : (
+                            <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-stone-600 border border-white/10 relative z-10">
+                              <span className="text-xl font-black uppercase select-none">{athlete.name.charAt(0)}</span>
+                            </div>
                           )}
                         </div>
-                        <p className="text-xs text-stone-500">{new Date(athlete.birthDate).toLocaleDateString('pt-BR')}</p>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-black text-white uppercase tracking-tight leading-none">{athlete.name}</p>
+                            {athlete.createdBy === profile?.uid && athlete.name === profile?.displayName && (
+                              <span className="px-2 py-0.5 bg-blue-600/20 text-blue-400 text-[8px] font-black rounded uppercase tracking-widest border border-blue-500/20">Você</span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-stone-500 uppercase font-bold tracking-widest mt-1.5 flex items-center gap-2">
+                            <Calendar className="w-3 h-3" />
+                            {new Date(athlete.birthDate).toLocaleDateString('pt-BR')}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="font-bold text-stone-900 text-sm">{ageCat} - {athlete.gender === 'M' ? 'Masculino' : 'Feminino'}</p>
-                    <p className="text-xs text-stone-500">{weightCat}</p>
-                  </td>
-                  <td className="px-6 py-4">
-                    <BeltBadge belt={athlete.belt} />
-                  </td>
-                  <td className="px-6 py-4 text-sm text-stone-600">{athlete.weight} kg</td>
-                  <td className="px-6 py-4 text-sm text-stone-600">
-                    {academies.find(a => a.id === athlete.academyId)?.name || 'N/A'}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex gap-2">
-                      <Button variant="ghost" className="p-2 h-auto" onClick={() => handleEdit(athlete)}><Edit className="w-4 h-4" /></Button>
-                      <Button 
-                        variant="ghost" 
-                        className={cn("p-2 h-auto", registrations.some(r => r.athleteId === athlete.id) ? "text-stone-300 cursor-not-allowed" : "text-red-500 hover:bg-red-50")}
-                        onClick={() => handleDelete(athlete.id)}
-                        title={registrations.some(r => r.athleteId === athlete.id) ? "Bloqueado por Inscrição Ativa" : "Excluir Atleta"}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              )})}
-              {athletes.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-6 py-20 text-center text-stone-500">Nenhum atleta cadastrado.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="space-y-1">
+                        <p className="text-xs font-black text-white uppercase tracking-tighter">
+                          {ageCat} • {athlete.gender === 'M' ? 'Masc' : 'Fem'}
+                        </p>
+                        <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest opacity-60">{weightCat}</p>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <BeltBadge belt={athlete.belt} />
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-black text-white">{athlete.weight}</span>
+                        <span className="text-[10px] font-bold text-stone-500 uppercase">kg</span>
+                      </div>
+                    </td>
+                    <td className="px-8 py-6">
+                      <p className="text-xs font-bold text-stone-400 uppercase tracking-wide">
+                        {academies.find(a => a.id === athlete.academyId)?.name || 'N/A'}
+                      </p>
+                    </td>
+                    <td className="px-8 py-6">
+                      <div className="flex justify-center gap-2">
+                        <Button variant="ghost" className="p-3 bg-white/5 hover:bg-emerald-600/20 group/edit" onClick={() => handleEdit(athlete)}>
+                          <Edit className="w-4 h-4 group-hover/edit:text-emerald-500 transition-colors" />
+                        </Button>
+                        <Button variant="ghost" className="p-3 bg-white/5 hover:bg-red-600/20 group/del" onClick={() => handleDelete(athlete.id)}>
+                          <Trash2 className="w-4 h-4 group-hover/del:text-red-500 transition-colors" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {athletes.length === 0 && (
+            <div className="py-32 flex flex-col items-center justify-center gap-6">
+              <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center border border-white/5">
+                <UserPlus className="w-10 h-10 text-stone-800" />
+              </div>
+              <p className="text-[10px] text-stone-600 uppercase font-black tracking-widest">Nenhum atleta cadastrado nesta conta</p>
+              <Button onClick={() => setIsAdding(true)} variant="secondary" className="px-8 py-3">Começar Cadastro</Button>
+            </div>
+          )}
         </Card>
       )}
     </motion.div>
   );
 }
 
-function RegistrationsView({ profile, registrations, athletes, academies, receipts, settings, key }: { profile: UserProfile | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; settings: any; key?: string }) {
+function RegistrationsView({ profile, registrations, athletes, academies, receipts, settings, onViewReceipt, key }: { profile: UserProfile | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; settings: any; onViewReceipt: (data: string) => void; key?: string }) {
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({
     athleteId: '',
     categories: [] as ('Kyorugui' | 'Poomsae' | 'Kyopa (3 tábuas)' | 'Kyopa (5 tábuas)')[],
   });
+  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
+  const [uploadingAcademyId, setUploadingAcademyId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const calculatePrice = (categories: string[]) => {
+    if (categories.length === 0) return 0;
+    if (categories.length === 1) return settings.priceSingle || 100;
+    return (settings.priceSingle || 100) + (categories.length - 1) * (settings.priceAdditional || 50);
+  };
+
+  const currentPrice = useMemo(() => calculatePrice(formData.categories), [formData.categories, settings]);
 
   const toggleCategory = (cat: 'Kyorugui' | 'Poomsae' | 'Kyopa (3 tábuas)' | 'Kyopa (5 tábuas)') => {
     setFormData(prev => ({
@@ -1141,48 +1307,26 @@ function RegistrationsView({ profile, registrations, athletes, academies, receip
     }));
   };
 
-  const calculatePrice = (categories: string[]) => {
-    let total = 0;
-    if (categories.includes('Kyorugui') || categories.includes('Poomsae')) {
-      total += 90;
-    }
-    if (categories.includes('Kyopa (3 tábuas)')) total += 25;
-    if (categories.includes('Kyopa (5 tábuas)')) total += 35;
-    return total;
-  };
-
-  const currentPrice = calculatePrice(formData.categories);
-  const [isGeneratingPix, setIsGeneratingPix] = useState(false);
-  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const pixCode = "00020126360014BR.GOV.BCB.PIX0114+55419971149975204000053039865802BR5913Leonardo Reis6009SAO PAULO62140510vHge3cTxOP630450EF";
-
-  const [uploadingAcademyId, setUploadingAcademyId] = useState<string | null>(null);
-
   const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !uploadingAcademyId) return;
 
     if (file.size > 800000) {
-      alert('O arquivo é muito grande. Por favor, envie uma imagem menor (máx 800KB).');
+      alert('Arquivo muito grande (máx 800KB). Para arquivos maiores, use formatos comprimidos ou PDF.');
       return;
     }
 
     setIsUploadingReceipt(true);
     try {
-      // Convert to base64
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64String = reader.result as string;
-        
-        // Create receipt document
         await addDoc(collection(db, 'receipts'), {
           academyId: uploadingAcademyId,
           receiptData: base64String,
           createdAt: new Date().toISOString()
         });
 
-        // Update all pending registrations for this academy to 'Em Análise'
         const pendingRegs = registrations.filter(r => r.academyId === uploadingAcademyId && r.paymentStatus === 'Pendente');
         await Promise.all(pendingRegs.map(reg => 
           updateDoc(doc(db, 'registrations', reg.id), {
@@ -1197,53 +1341,8 @@ function RegistrationsView({ profile, registrations, athletes, academies, receip
       reader.readAsDataURL(file);
     } catch (error) {
       console.error("Erro ao enviar comprovante:", error);
-      alert('Erro ao enviar comprovante. Tente novamente.');
+      alert('Erro ao enviar comprovante.');
       setIsUploadingReceipt(false);
-      setUploadingAcademyId(null);
-    }
-  };
-
-  const redirectToCheckout = async (amount: number, description: string) => {
-    try {
-      setIsGeneratingPix(true);
-      const response = await fetch('/api/payments/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transaction_amount: amount,
-          description: description,
-          payer_email: profile?.email || 'contato@laravitoria.com',
-          external_reference: profile?.academyId || profile?.uid
-        })
-      });
-      
-      if (!response.ok) throw new Error('Falha ao gerar checkout');
-      
-      const data = await response.json();
-      
-      // Redireciona para o Checkout Pro do Mercado Pago
-      if (data.init_point) {
-        window.location.href = data.init_point;
-      } else {
-        throw new Error('URL de checkout não encontrada');
-      }
-    } catch (error) {
-      console.error(error);
-      alert('Erro ao iniciar pagamento com Mercado Pago. Você ainda pode usar o PIX manual.');
-    } finally {
-      setIsGeneratingPix(false);
-    }
-  };
-
-  const handlePaymentStatus = async (regId: string, currentStatus: string) => {
-    try {
-      const newStatus = currentStatus === 'Pago' ? 'Pendente' : 'Pago';
-      await updateDoc(doc(db, 'registrations', regId), {
-        paymentStatus: newStatus,
-        status: newStatus === 'Pago' ? 'Confirmado' : 'Pendente'
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'registrations');
     }
   };
 
@@ -1267,15 +1366,6 @@ function RegistrationsView({ profile, registrations, athletes, academies, receip
         createdAt: new Date().toISOString()
       });
 
-      try {
-        const text = `Olá! A inscrição do atleta *${athlete.name}* no 3º Festival União Lopes foi registrada com sucesso. 🥋\n\n*Categorias:* ${formData.categories.join(', ')}\n*Status:* Pendente\n\nLembre-se de enviar o comprovante de pagamento para confirmar a participação.`;
-        if (window.confirm('Inscrição realizada com sucesso! Deseja compartilhar o comprovante via WhatsApp?')) {
-          window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-        }
-      } catch (e) {
-        console.error('Erro ao gerar link do WhatsApp:', e);
-      }
-
       setIsAdding(false);
       setFormData({ athleteId: '', categories: [] });
     } catch (error) {
@@ -1284,7 +1374,7 @@ function RegistrationsView({ profile, registrations, athletes, academies, receip
   };
 
   const handleDeleteRegistration = async (id: string) => {
-    if (window.confirm('Tem certeza que deseja cancelar e excluir esta inscrição de forma permanente?')) {
+    if (window.confirm('Tem certeza que deseja cancelar esta inscrição?')) {
       try {
         await deleteDoc(doc(db, 'registrations', id));
       } catch (error) {
@@ -1301,14 +1391,31 @@ function RegistrationsView({ profile, registrations, athletes, academies, receip
     registrations.some(r => r.academyId === a.id && (r.paymentStatus === 'Pendente' || r.paymentStatus === 'Em Análise'))
   );
 
+  const handlePaymentStatus = async (regId: string, currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === 'Pago' ? 'Pendente' : 'Pago';
+      await updateDoc(doc(db, 'registrations', regId), {
+        paymentStatus: newStatus,
+        status: newStatus === 'Pago' ? 'Confirmado' : 'Pendente'
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'registrations');
+    }
+  };
+
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Inscrições no Festival</h2>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
+      <header className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-black text-white italic uppercase tracking-tighter">Inscrições</h2>
+          <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Festival União Lopes 2026</p>
+        </div>
         {!isAdding && athletes.length > 0 && (
-          <Button onClick={() => setIsAdding(true)}><Plus className="w-5 h-5" /> Nova Inscrição</Button>
+          <Button onClick={() => setIsAdding(true)} variant="primary">
+            <Plus className="w-5 h-5" /> Nova Inscrição
+          </Button>
         )}
-      </div>
+      </header>
 
       {!isAdding && academiesWithPendingOrAnalysis.map(academy => {
         const pendingRegs = registrations.filter(r => r.academyId === academy.id && r.paymentStatus === 'Pendente');
@@ -1317,322 +1424,367 @@ function RegistrationsView({ profile, registrations, athletes, academies, receip
         const academyReceipts = receipts.filter(r => r.academyId === academy.id);
 
         return (
-          <Card key={academy.id} className="p-6 bg-amber-50 border-amber-200 flex flex-col md:flex-row gap-8 items-start justify-between">
-            <div className="flex-1 w-full">
-              <h3 className="text-lg font-bold text-amber-900 mb-1">
-                {pendingRegs.length > 0 ? `Pagamento Pendente - ${academy.name}` : `Pagamento em Análise - ${academy.name}`}
-              </h3>
-              <p className="text-amber-700 text-sm mb-4">
-                {pendingRegs.length > 0 
-                  ? 'Sua academia possui inscrições aguardando pagamento. Você pode fazer um PIX único com o valor total.'
-                  : 'Seu comprovante foi enviado e está em análise pelo administrador.'}
-              </p>
-
-              <div className="mb-6 bg-white/50 p-4 rounded-xl border border-amber-200/50 max-h-40 overflow-y-auto">
-                <p className="text-xs font-bold text-amber-900 uppercase tracking-wider mb-3">Resumo das Inscrições</p>
-                <div className="space-y-2">
-                  {[...pendingRegs, ...analysisRegs].map(reg => {
-                    const athlete = athletes.find(a => a.id === reg.athleteId);
-                    return (
-                      <div key={reg.id} className="flex justify-between items-center text-sm border-b border-amber-100/50 pb-2 last:border-0 last:pb-0">
-                        <span className="font-medium text-stone-700">{athlete?.name || 'Atleta desconhecido'}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-stone-500">{reg.categories.join(', ')} - R$ {calculatePrice(reg.categories).toFixed(2).replace('.', ',')}</span>
-                          {reg.paymentStatus === 'Em Análise' && (
-                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded uppercase tracking-wider">Em Análise</span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+          <Card key={academy.id} className="p-0 border-white/5 bg-gradient-to-br from-amber-600/5 to-transparent overflow-hidden">
+            <div className="p-8 flex flex-col lg:flex-row gap-10 items-start justify-between">
+              <div className="flex-1 w-full flex flex-col h-full">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                    <AlertCircle className="w-6 h-6 text-amber-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-white uppercase tracking-tighter italic">
+                      {pendingRegs.length > 0 ? "Aguardando Pagamento" : "Em Análise de Comprovante"}
+                    </h3>
+                    <p className="text-[10px] text-amber-500/60 font-black uppercase tracking-[0.2em]">{academy.name}</p>
+                  </div>
                 </div>
+
+                <div className="flex-1 bg-black/20 rounded-2xl border border-white/5 p-4 mb-6">
+                  <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-4 ml-1">Atletas neste lote</p>
+                  <div className="space-y-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                    {[...pendingRegs, ...analysisRegs].map(reg => {
+                      const athlete = athletes.find(a => a.id === reg.athleteId);
+                      return (
+                        <div key={reg.id} className="flex justify-between items-center group/item p-2 hover:bg-white/5 rounded-xl transition-colors">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center border border-white/5">
+                              <span className="text-xs font-black text-white">{athlete?.name.charAt(0)}</span>
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-white uppercase tracking-tight">{athlete?.name}</p>
+                              <p className="text-[8px] text-stone-500 font-bold uppercase tracking-widest">{reg.categories.join(' + ')}</p>
+                            </div>
+                          </div>
+                          <p className="text-xs font-black text-white tabular-nums tracking-tighter">R$ {calculatePrice(reg.categories).toFixed(2).replace('.', ',')}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {pendingRegs.length > 0 && (
+                  <div className="mt-auto">
+                    <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-1 ml-1">Total deste Lote</p>
+                    <p className="text-5xl font-black text-white tracking-tighter italic">R$ {totalPending.toFixed(2).replace('.', ',')}</p>
+                  </div>
+                )}
               </div>
 
-              {pendingRegs.length > 0 && (
-                <>
-                  <p className="text-3xl font-bold text-amber-900 mb-4">R$ {totalPending.toFixed(2).replace('.', ',')}</p>
-                  {settings.mercadoPagoEnabled && (
-                    <Button 
-                      onClick={() => {
-                        const desc = pendingRegs.map(reg => {
-                          const athlete = athletes.find(a => a.id === reg.athleteId);
-                          return `${athlete?.name} (${reg.categories.join(', ')})`;
-                        }).join(' | ').substring(0, 250);
-                        redirectToCheckout(totalPending, desc || `Inscrições Academia ${academy.name}`);
-                      }}
-                      disabled={isGeneratingPix}
-                      className="bg-blue-600 hover:bg-blue-700 text-white"
-                    >
-                      {isGeneratingPix ? 'Iniciando pagamento...' : 'Pagar com Mercado Pago'}
-                    </Button>
-                  )}
-                </>
-              )}
-            </div>
-
-            {pendingRegs.length > 0 ? (
-              <div className="flex flex-col sm:flex-row gap-6 items-center bg-white p-6 rounded-2xl border border-amber-200 shadow-sm shrink-0 max-w-md">
-                <div className="shrink-0 bg-white p-2 rounded-xl shadow-sm border border-stone-100">
-                  <QRCodeSVG value={pixCode} size={110} />
-                </div>
-                <div className="space-y-4 flex-1 w-full">
-                  <div>
-                    <p className="text-sm font-bold text-stone-800 mb-2">Ou pague via PIX Manual</p>
-                    <div className="flex gap-2">
-                      <input 
-                        type="text" 
-                        readOnly 
-                        value={pixCode.substring(0, 25) + '...'} 
-                        className="w-full text-xs px-3 py-2 bg-stone-50 border border-stone-200 rounded-lg text-stone-500 outline-none"
+              {pendingRegs.length > 0 ? (
+                <div className="w-full lg:w-96 flex flex-col gap-6">
+                  <div className="bg-white p-6 rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.05)] border-4 border-white/20 relative group/pix">
+                    <div className="absolute inset-0 bg-red-600/5 rounded-[22px] blur-xl opacity-0 group-hover/pix:opacity-100 transition-opacity" />
+                    <div className="relative z-10 flex flex-col items-center gap-4">
+                      <QRCodeSVG 
+                        value={generatePix(
+                          totalPending, 
+                          `Lote ${academy.name.substring(0, 10)}`, 
+                          academy.id.substring(0, 5)
+                        )} 
+                        size={180} 
+                        className="w-full h-auto max-w-[180px]" 
                       />
-                      <Button 
-                        type="button" 
-                        variant="secondary" 
-                        className="text-xs py-2 px-4 h-auto bg-white border-stone-200 hover:bg-stone-50 text-stone-700 rounded-lg shadow-sm shrink-0"
-                        onClick={() => {
-                          navigator.clipboard.writeText(pixCode);
-                          alert('Código PIX copiado!');
-                        }}
-                      >
-                        Copiar
-                      </Button>
+                      <div className="w-full space-y-3 mt-2">
+                        <div className="space-y-1 mb-2">
+                          <p className="text-[9px] font-black text-stone-500 uppercase tracking-widest pl-1">Descrição do Pagamento</p>
+                          <div className="p-3 bg-black/40 border border-white/5 rounded-xl text-[9px] text-stone-300 font-bold uppercase leading-relaxed">
+                            {pendingRegs.map(reg => {
+                              const athlete = athletes.find(a => a.id === reg.athleteId);
+                              return `${athlete?.name} (${reg.categories.join(' + ')})`;
+                            }).join(', ')}
+                          </div>
+                        </div>
+                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest text-center mt-4">PIX Copia e Cola (Leonardo Reis)</p>
+                        <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            readOnly 
+                            value={generatePix(
+                              totalPending, 
+                              `Lote ${academy.name.substring(0, 10)}`, 
+                              academy.id.substring(0, 5)
+                            )} 
+                            className="w-full text-[10px] font-mono px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-white outline-none focus:border-red-600/50 transition-all" 
+                          />
+                          <Button 
+                            variant="primary" 
+                            className="shrink-0 px-4 py-3 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 group/copy"
+                            onClick={() => {
+                              navigator.clipboard.writeText(generatePix(
+                                totalPending, 
+                                `Lote ${academy.name.substring(0, 10)}`, 
+                                academy.id.substring(0, 5)
+                              ));
+                              alert('Código PIX com valor e descrição automática copiado!');
+                            }}
+                          >
+                            <Copy className="w-3.5 h-3.5 group-hover/copy:scale-110 transition-transform" />
+                            <span>Copiar</span>
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  
-                  <div>
-                    <input 
-                      type="file" 
-                      accept="image/*,.pdf" 
-                      className="hidden" 
-                      ref={fileInputRef}
-                      onChange={handleReceiptUpload}
-                    />
+
+                  <div className="space-y-4">
+
                     <Button 
-                      type="button" 
-                      variant="secondary" 
-                      className="w-full text-sm py-2 h-auto border-amber-400 text-amber-600 hover:bg-amber-50 bg-white rounded-lg font-semibold"
+                      variant="primary" 
+                      className="w-full py-5 rounded-2xl shadow-[0_0_30px_rgba(220,38,38,0.2)]"
                       onClick={() => {
                         setUploadingAcademyId(academy.id);
                         fileInputRef.current?.click();
                       }}
                       disabled={isUploadingReceipt}
                     >
-                      {isUploadingReceipt ? 'Enviando...' : 'Enviar Comprovante'}
+                      {isUploadingReceipt ? 'Enviando...' : 'Anexar Comprovante'}
                     </Button>
+                    <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest text-center leading-relaxed">
+                      Lote será confirmado após<br/>validação manual do mestre
+                    </p>
                   </div>
-                  <p className="text-[11px] text-stone-500 leading-tight">
-                    Após o pagamento manual, envie o comprovante para o administrador para liberação.{settings.mercadoPagoEnabled && ' Pelo Mercado Pago a liberação é automática.'}
-                  </p>
                 </div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4 items-center justify-center bg-white p-6 rounded-2xl border border-amber-200 shadow-sm shrink-0 w-full md:w-64">
-                <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-2">
-                  <CheckCircle2 className="w-8 h-8 text-blue-500" />
+              ) : (
+                <div className="w-full lg:w-96 flex flex-col items-center justify-center p-12 bg-blue-600/5 rounded-[40px] border border-blue-500/20 gap-6">
+                  <div className="w-20 h-20 rounded-3xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 group">
+                    <Clock className="w-10 h-10 text-blue-500 group-hover:rotate-12 transition-transform" />
+                  </div>
+                  <div className="text-center space-y-2">
+                    <h4 className="text-xl font-black text-white uppercase tracking-tighter italic">Em Análise</h4>
+                    <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest leading-relaxed">
+                      Aguardando conferência do<br/>setor financeiro (24h úteis)
+                    </p>
+                  </div>
+                  {academyReceipts.length > 0 && (
+                     <button 
+                       onClick={() => onViewReceipt(academyReceipts[0].receiptData)}
+                       className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:underline"
+                     >
+                       Ver comprovante enviado
+                     </button>
+                   )}
                 </div>
-                <p className="text-sm font-bold text-stone-800 text-center">Comprovante em Análise</p>
-                {academyReceipts.length > 0 && (
-                  <a 
-                    href={academyReceipts[0].receiptData} 
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs py-2 px-4 w-full text-center bg-stone-50 text-stone-700 border border-stone-200 rounded-lg font-medium hover:bg-stone-100 transition-colors"
-                  >
-                    Ver Comprovante Enviado
-                  </a>
-                )}
-              </div>
-            )}
+              )}
+            </div>
           </Card>
         );
       })}
 
       {isAdding ? (
-        <Card className="p-8 max-w-2xl mx-auto">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <h3 className="text-xl font-bold mb-4">Inscrever Atleta</h3>
+        <Card className="p-8 max-w-2xl mx-auto border-white/5">
+          <form onSubmit={handleSubmit} className="space-y-8">
+            <h3 className="text-xl font-black text-white italic uppercase tracking-tighter border-b border-white/5 pb-4">Nova Inscrição</h3>
             <Select 
-              label="Atleta" 
+              label="Competidor" 
               options={athletes.map(a => ({ value: a.id, label: a.name }))} 
               value={formData.athleteId}
               onChange={e => setFormData({ ...formData, athleteId: e.target.value })}
               required
             />
             
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-stone-700">Categorias</label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-4">
+              <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">Disciplinas</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {(['Kyorugui', 'Poomsae', 'Kyopa (3 tábuas)', 'Kyopa (5 tábuas)'] as const).map(cat => (
                   <label key={cat} className={cn(
-                    "flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-all",
-                    formData.categories.includes(cat) ? "border-red-600 bg-red-50 text-red-900" : "border-stone-200 hover:bg-stone-50"
+                    "flex items-center gap-4 p-5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group",
+                    formData.categories.includes(cat) 
+                      ? "bg-red-600 text-white border-red-500 shadow-xl" 
+                      : "bg-white/5 border-white/5 text-stone-400 hover:border-white/10 hover:bg-white/[0.08]"
                   )}>
                     <input 
                       type="checkbox" 
-                      className="w-4 h-4 text-red-600 rounded border-stone-300 focus:ring-red-600"
+                      className="hidden"
                       checked={formData.categories.includes(cat)}
                       onChange={() => toggleCategory(cat)}
                     />
-                    <span className="font-medium text-sm">{cat}</span>
+                    <div className={cn(
+                      "w-5 h-5 rounded-lg border flex items-center justify-center transition-colors",
+                      formData.categories.includes(cat) ? "bg-white text-red-600 border-white" : "border-white/10"
+                    )}>
+                      {formData.categories.includes(cat) && <CheckCircle2 className="w-3 h-3" />}
+                    </div>
+                    <span className="font-black uppercase tracking-tight text-sm">{cat}</span>
+                    {formData.categories.includes(cat) && (
+                      <div className="absolute right-0 top-0 h-full w-1.5 bg-white/20" />
+                    )}
                   </label>
                 ))}
               </div>
             </div>
 
             {currentPrice > 0 && (
-              <div className="bg-stone-50 p-6 rounded-xl border border-stone-200 space-y-4">
-                <div className="flex justify-between items-center border-b border-stone-200 pb-4">
-                  <span className="font-medium text-stone-700">Total a pagar:</span>
-                  <span className="text-2xl font-bold text-stone-900">R$ {currentPrice.toFixed(2).replace('.', ',')}</span>
+              <div className="bg-stone-900/60 p-8 rounded-3xl border border-white/5 space-y-6 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-red-600/5 rounded-full blur-3xl -mr-16 -mt-16" />
+                <div className="flex justify-between items-center border-b border-white/5 pb-6">
+                  <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Investimento</span>
+                  <span className="text-4xl font-black text-white tracking-tighter">R$ {currentPrice.toFixed(2).replace('.', ',')}</span>
                 </div>
                 
-                <div className="flex flex-col md:flex-row gap-6 items-center">
-                  <div className="bg-white p-2 rounded-xl shadow-sm border border-stone-100">
-                    <QRCodeSVG value={pixCode} size={120} />
+                <div className="flex flex-col sm:flex-row gap-8 items-center">
+                  <div className="bg-white p-2 rounded-2xl shadow-2xl shrink-0">
+                    <QRCodeSVG 
+                      value={generatePix(
+                        currentPrice, 
+                        `Insc: ${athletes.find(a => a.id === formData.athleteId)?.name.substring(0, 15)}`, 
+                        "NOVO"
+                      )} 
+                      size={100} 
+                    />
                   </div>
-                  <div className="space-y-2 flex-1 w-full">
-                    <p className="text-sm font-medium text-stone-700">Pague via PIX Copia e Cola</p>
+                  <div className="space-y-4 flex-1">
+                    <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Pagamento Via PIX</p>
                     <div className="flex gap-2">
                       <input 
                         type="text" 
                         readOnly 
-                        value={pixCode} 
-                        className="w-full text-xs px-3 py-2 bg-white border border-stone-200 rounded-lg text-stone-500 outline-none"
+                        value={generatePix(
+                          currentPrice, 
+                          `Insc: ${athletes.find(a => a.id === formData.athleteId)?.name.substring(0, 15)}`, 
+                          "NOVO"
+                        )} 
+                        className="w-full text-[10px] font-mono px-4 py-2.5 bg-black/40 border border-white/5 rounded-xl text-stone-400 outline-none" 
                       />
                       <Button 
                         type="button" 
-                        variant="secondary" 
-                        className="text-xs py-2 px-3"
+                        variant="ghost" 
+                        className="px-4 py-2 text-[10px] font-black uppercase tracking-widest bg-white/5 hover:bg-white/10"
                         onClick={() => {
-                          navigator.clipboard.writeText(pixCode);
-                          alert('Código PIX copiado!');
+                          navigator.clipboard.writeText(generatePix(
+                            currentPrice, 
+                            `Insc: ${athletes.find(a => a.id === formData.athleteId)?.name.substring(0, 15)}`, 
+                            "NOVO"
+                          ));
+                          alert('PIX Copiado!');
                         }}
                       >
                         Copiar
                       </Button>
                     </div>
-                    <p className="text-xs text-stone-500 mt-2">Após o pagamento, a inscrição será confirmada pelo administrador.</p>
                   </div>
                 </div>
               </div>
             )}
 
-            <div className="flex gap-4 pt-4">
-              <Button type="submit" className="flex-1">Confirmar Inscrição</Button>
-              <Button type="button" variant="secondary" onClick={() => setIsAdding(false)}>Cancelar</Button>
+            <div className="flex flex-col sm:flex-row gap-4 pt-4">
+              <Button type="submit" className="flex-1 py-4 text-sm shadow-red-600/20">Finalizar Inscrição</Button>
+              <Button type="button" variant="secondary" className="flex-1 py-4 text-sm" onClick={() => {
+                setIsAdding(false);
+                setFormData({ athleteId: '', categories: [] });
+              }}>Cancelar</Button>
             </div>
           </form>
         </Card>
       ) : (
-        <div className="space-y-4">
-          {myAcademyRegs.map(reg => {
-            const athlete = athletes.find(a => a.id === reg.athleteId);
-            const ageCat = athlete ? getAgeCategory(athlete.birthDate, athlete.belt) : '';
-            const weightCat = athlete ? getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt) : '';
-            return (
-              <Card key={reg.id} className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="relative">
-                    {athlete?.avatar ? (
-                      <img src={athlete.avatar} alt={athlete?.name} className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm" />
-                    ) : (
-                      <div className={cn(
-                        'w-12 h-12 rounded-full flex items-center justify-center border-2 border-white shadow-sm',
-                        reg.status === 'Confirmado' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'
-                      )}>
-                        {reg.status === 'Confirmado' ? <CheckCircle2 className="w-6 h-6" /> : <Clock className="w-6 h-6" />}
-                      </div>
-                    )}
-                    {athlete?.avatar && (
-                      <div className={cn(
-                        'absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center border-2 border-white',
-                        reg.status === 'Confirmado' ? 'bg-emerald-500 text-white' : 'bg-amber-500 text-white'
-                      )}>
-                        {reg.status === 'Confirmado' ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-bold text-stone-900">{athlete?.name || 'Atleta não encontrado'}</p>
-                      {athlete?.createdBy === profile?.uid && athlete?.name === profile?.displayName && (
-                        <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded uppercase tracking-wider">Você</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-stone-500">
-                      {ageCat} - {athlete?.gender === 'M' ? 'Masculino' : 'Feminino'} ({weightCat}) • {reg.categories?.join(', ')} • {academies.find(a => a.id === reg.academyId)?.name} • <span className="font-bold text-stone-700">R$ {calculatePrice(reg.categories || []).toFixed(2).replace('.', ',')}</span>
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap sm:flex-nowrap">
-                  <Button 
-                    variant="secondary" 
-                    className="text-xs py-1 px-3 h-auto bg-green-50 text-green-700 hover:bg-green-100 border-green-200"
-                    onClick={() => {
-                      const text = `Olá! A inscrição do atleta *${athlete?.name}* no 3º Festival União Lopes está *${reg.status}*. 🥋\n\n*Categorias:* ${reg.categories.join(', ')}\n*Status do Pagamento:* ${reg.paymentStatus}`;
-                      
-                      const academy = academies.find(a => a.id === reg.academyId);
-                      let url = `https://wa.me/?text=${encodeURIComponent(text)}`;
-                      
-                      if (profile?.role === 'admin' && academy && academy.contact) {
-                        const formattedPhone = formatWhatsAppNumber(academy.contact);
-                        url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`;
-                      } else if (profile?.role !== 'admin') {
-                        // Se for a academia, envia mensagem para o organizador (Admin)
-                        url = `https://wa.me/5541997114997?text=${encodeURIComponent(text)}`;
-                      }
-                      
-                      window.open(url, '_blank');
-                    }}
-                  >
-                    WhatsApp
-                  </Button>
-                  {profile?.role === 'admin' && (
-                    <Button 
-                      variant="secondary" 
-                      className="text-xs py-1 px-3 h-auto"
-                      onClick={() => handlePaymentStatus(reg.id, reg.paymentStatus)}
-                    >
-                      {reg.paymentStatus === 'Pago' ? 'Desfazer Pagamento' : 'Aprovar Pagamento'}
-                    </Button>
-                  )}
-                  <div className="text-right ml-auto sm:ml-0">
-                    <p className={cn(
-                      'text-xs font-bold uppercase tracking-wider', 
-                      reg.paymentStatus === 'Pago' ? 'text-emerald-600' : 
-                      reg.paymentStatus === 'Em Análise' ? 'text-blue-600' : 'text-amber-600'
-                    )}>
-                      {reg.paymentStatus}
-                    </p>
-                    <p className="text-[10px] text-stone-400">Pagamento</p>
-                  </div>
-                  <div className="text-right">
-                    <p className={cn('text-xs font-bold uppercase tracking-wider', reg.status === 'Confirmado' ? 'text-emerald-600' : 'text-amber-600')}>
-                      {reg.status}
-                    </p>
-                    <p className="text-[10px] text-stone-400">Status</p>
-                  </div>
-                  
-                  {/* Botão de Excluir Inscrição (Orphan Cleanup & Cancel) */}
-                  {(profile?.role === 'admin' || reg.paymentStatus === 'Pendente') && (
-                    <Button 
-                      variant="ghost" 
-                      className="p-2 h-auto text-red-500 hover:bg-red-50 ml-2" 
-                      onClick={() => handleDeleteRegistration(reg.id)}
-                      title="Excluir Inscrição"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </Button>
-                  )}
-                </div>
-              </Card>
-            );
-          })}
+        <Card className="border-white/5 bg-white/[0.02]">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[800px]">
+              <thead>
+                <tr className="bg-white/5 border-b border-white/5">
+                  <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Competidor</th>
+                  <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Categorias</th>
+                  <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Pagamento</th>
+                  <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Data</th>
+                  <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em] text-center">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {myAcademyRegs.map(reg => {
+                  const athlete = athletes.find(a => a.id === reg.athleteId);
+                  return (
+                    <tr key={reg.id} className="hover:bg-white/[0.03] transition-colors group/row">
+                      <td className="px-8 py-6">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/5">
+                             <span className="text-sm font-black text-white">{athlete?.name.charAt(0)}</span>
+                          </div>
+                          <div>
+                            <p className="font-black text-white uppercase tracking-tight leading-none">{athlete?.name}</p>
+                            <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1.5 italic">
+                              {academies.find(a => a.id === reg.academyId)?.name}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-8 py-6">
+                        <div className="flex flex-wrap gap-2">
+                          {reg.categories.map(cat => (
+                            <span key={cat} className="px-2 py-0.5 bg-white/5 border border-white/10 rounded-md text-[9px] font-black text-stone-300 uppercase tracking-widest whitespace-nowrap">
+                              {cat}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-8 py-6">
+                         <div className={cn(
+                          "inline-flex items-center gap-2 px-3 py-1 rounded-full border text-[10px] font-black uppercase tracking-widest",
+                          reg.paymentStatus === 'Pago' ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" :
+                          reg.paymentStatus === 'Em Análise' ? "bg-blue-500/10 text-blue-500 border-blue-500/20" :
+                          "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                        )}>
+                          {reg.paymentStatus === 'Pago' ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                          {reg.paymentStatus}
+                        </div>
+                      </td>
+                      <td className="px-8 py-6">
+                        <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">
+                          {new Date(reg.createdAt).toLocaleDateString('pt-BR')}
+                        </p>
+                      </td>
+                      <td className="px-8 py-6">
+                        <div className="flex justify-center gap-2">
+                          <Button 
+                            variant="ghost" 
+                            className="p-3 bg-white/5 hover:bg-emerald-600/20 group/wa" 
+                            onClick={() => {
+                              const text = `Olá! A inscrição do atleta *${athlete?.name}* no 3º Festival União Lopes está *${reg.paymentStatus}*. 🥋\n\n*Categorias:* ${reg.categories.join(', ')}`;
+                              const academy = academies.find(a => a.id === reg.academyId);
+                              let url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                              if (profile?.role === 'admin' && academy?.contact) {
+                                url = `https://wa.me/${formatWhatsAppNumber(academy.contact)}?text=${encodeURIComponent(text)}`;
+                              }
+                              window.open(url, '_blank');
+                            }}
+                          >
+                            <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest px-1">WA</span>
+                          </Button>
+                          {profile?.role === 'admin' && (
+                            <Button 
+                              variant="ghost" 
+                              className="p-3 bg-white/5 hover:bg-emerald-600/20 group/approve" 
+                              onClick={() => handlePaymentStatus(reg.id, reg.paymentStatus)}
+                            >
+                              <CheckCircle2 className="w-4 h-4 group-hover/approve:text-emerald-500 transition-colors" />
+                            </Button>
+                          )}
+                          {(profile?.role === 'admin' || reg.paymentStatus === 'Pendente') && (
+                            <Button variant="ghost" className="p-3 bg-white/5 hover:bg-red-600/20 group/del" onClick={() => handleDeleteRegistration(reg.id)}>
+                              <Trash2 className="w-4 h-4 group-hover/del:text-red-500 transition-colors" />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           {myAcademyRegs.length === 0 && (
-            <div className="py-20 text-center text-stone-500">Nenhuma inscrição realizada.</div>
+            <div className="py-24 text-center">
+              <p className="text-[10px] text-stone-600 uppercase font-black tracking-[0.2em]">Sem inscrições realizadas</p>
+            </div>
           )}
-        </div>
+        </Card>
       )}
+      {/* Hidden Global Input for Receipts */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleReceiptUpload} 
+        accept="image/*,application/pdf" 
+        className="hidden" 
+      />
     </motion.div>
   );
 }
@@ -1683,19 +1835,24 @@ function ProfileView({ profile, user, key }: { profile: UserProfile | null; user
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold">Meu Perfil</h2>
-      <Card className="p-8">
-        <div className="flex flex-col items-center gap-6">
-          <div className="relative">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10 max-w-4xl mx-auto">
+      <header>
+        <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Meu Perfil</h2>
+        <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Gerenciamento de conta e identidade</p>
+      </header>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <Card className="md:col-span-1 p-8 border-white/5 bg-white/[0.02] flex flex-col items-center text-center">
+          <div className="relative group/avatar">
+            <div className="absolute inset-0 bg-red-600/20 rounded-full blur-2xl opacity-0 group-hover/avatar:opacity-100 transition-opacity" />
             <img 
               src={profile?.photoURL || user.photoURL || ''} 
               alt="Avatar" 
-              className="w-32 h-32 rounded-full border-4 border-white shadow-lg object-cover bg-stone-100"
+              className="w-40 h-40 rounded-full border-4 border-white/10 shadow-2xl object-cover bg-stone-900 relative z-10"
             />
             <button 
               onClick={() => fileInputRef.current?.click()}
-              className="absolute bottom-0 right-0 p-3 bg-blue-600 text-white rounded-full shadow-md hover:bg-blue-700 transition-colors"
+              className="absolute bottom-2 right-2 p-4 bg-red-600 text-white rounded-2xl shadow-xl hover:bg-red-700 transition-all z-20 group-hover/avatar:scale-110"
               disabled={isUploading}
             >
               <Camera className="w-5 h-5" />
@@ -1709,48 +1866,109 @@ function ProfileView({ profile, user, key }: { profile: UserProfile | null; user
             />
           </div>
           
-          <div className="text-center space-y-1">
-            <h3 className="text-xl font-bold text-stone-900">{profile?.displayName || user.displayName}</h3>
-            <p className="text-stone-500">{profile?.email}</p>
-            <p className="text-xs font-bold uppercase tracking-wider text-blue-600 mt-2 block">{profile?.role}</p>
+          <div className="mt-8 space-y-2">
+            <h3 className="text-2xl font-black text-white uppercase tracking-tighter italic">{profile?.displayName || user.displayName}</h3>
+            <p className="text-[10px] font-black text-red-500 uppercase tracking-[0.2em]">{profile?.role}</p>
+          </div>
+        </Card>
+
+        <Card className="md:col-span-2 p-10 border-white/5 bg-white/[0.02] space-y-10">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-10">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">E-mail de Acesso</label>
+              <div className="p-4 bg-black/40 border border-white/5 rounded-2xl text-white font-bold tracking-tight">
+                {profile?.email}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">UID do Sistema</label>
+              <div className="p-4 bg-black/40 border border-white/5 rounded-2xl text-stone-500 font-mono text-[10px] truncate">
+                {profile?.uid}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Input 
+                label="Data de Nascimento" 
+                type="date" 
+                value={profile?.birthDate || ''} 
+                onChange={async (e) => {
+                  try {
+                    await updateDoc(doc(db, 'users', profile!.uid), { birthDate: e.target.value });
+                  } catch (err) {
+                    alert('Erro ao atualizar data de nascimento.');
+                  }
+                }} 
+              />
+            </div>
+            <div className="space-y-2">
+              <Select 
+                label="Gênero" 
+                options={[
+                  { value: 'M', label: 'Masculino' }, 
+                  { value: 'F', label: 'Feminino' }
+                ]} 
+                value={profile?.gender || 'M'}
+                onChange={async (e) => {
+                  try {
+                    await updateDoc(doc(db, 'users', profile!.uid), { gender: e.target.value });
+                  } catch (err) {
+                    alert('Erro ao atualizar gênero.');
+                  }
+                }}
+              />
+            </div>
           </div>
 
-          <div className="w-full border-t border-stone-100 pt-6 mt-2">
-            <h4 className="font-bold text-stone-900 mb-4 text-center">Opções de Foto</h4>
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <div className="pt-6 border-t border-white/5">
+             <h4 className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-6 ml-1">Sincronização de Foto</h4>
+             <div className="flex flex-col sm:flex-row gap-4">
               <Button 
-                variant="secondary" 
+                variant="primary" 
+                className="flex-1 py-4"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading}
               >
-                {isUploading ? 'Enviando...' : 'Enviar Nova Foto'}
+                {isUploading ? 'Processando...' : 'Carregar Nova Imagem'}
               </Button>
               {user.photoURL && (
                 <Button 
                   variant="secondary" 
+                  className="flex-1 py-4"
                   onClick={handleUseGooglePhoto}
                 >
-                  Usar Foto do Google
+                  Vincular Foto do Google
                 </Button>
               )}
             </div>
+            <p className="text-[9px] text-stone-600 font-bold uppercase tracking-widest mt-6 text-center italic">
+              Imagens recomendadas em formato quadrado (máx 800KB)
+            </p>
           </div>
-        </div>
-      </Card>
+        </Card>
+      </div>
     </motion.div>
   );
 }
 
-function CompetitionView({ registrations, athletes, academies }: { registrations: Registration[]; athletes: Athlete[]; academies: Academy[] }) {
+function CompetitionView({ registrations, athletes, academies, user }: { registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; user: User }) {
   const [selectedCategory, setSelectedCategory] = useState<string>('Kyorugui');
   
-  // Agrupar atletas por categoria de competição
   const groupedAthletes = useMemo(() => {
     const groups: Record<string, any[]> = {};
     
-    registrations.filter(r => r.status === 'Confirmado' && r.categories.includes(selectedCategory as any)).forEach(reg => {
+    registrations.filter(r => r.status === 'Confirmado').forEach(reg => {
       const athlete = athletes.find(a => a.id === reg.athleteId);
       if (!athlete) return;
+      
+      const isKyopaTab = selectedCategory === 'Kyopa';
+      const hasKyopa = reg.categories.some(c => c.includes('Kyopa'));
+      const hasCategory = reg.categories.includes(selectedCategory as any);
+
+      if (isKyopaTab) {
+        if (!hasKyopa) return;
+      } else {
+        if (!hasCategory) return;
+      }
       
       const ageCat = getAgeCategory(athlete.birthDate, athlete.belt);
       const weightCat = getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt);
@@ -1758,18 +1976,15 @@ function CompetitionView({ registrations, athletes, academies }: { registrations
       const genderStr = athlete.gender === 'M' ? 'Masculino' : 'Feminino';
       
       let groupKey = '';
-      if (selectedCategory === 'Kyorugui') {
+      if (isKyopaTab) {
+        groupKey = `KYOPA (Geral)`;
+      } else if (selectedCategory === 'Kyorugui') {
         groupKey = `${ageCat} | ${isDan} | ${genderStr} | ${weightCat}`;
-      } else if (selectedCategory.includes('Kyopa')) {
-        groupKey = `Categoria Única`;
       } else {
         groupKey = `${ageCat} | ${isDan} | ${genderStr}`;
       }
       
-      if (!groups[groupKey]) {
-        groups[groupKey] = [];
-      }
-      
+      if (!groups[groupKey]) groups[groupKey] = [];
       groups[groupKey].push({
         ...athlete,
         academy: academies.find(a => a.id === athlete.academyId)?.name || 'Desconhecida'
@@ -1780,76 +1995,90 @@ function CompetitionView({ registrations, athletes, academies }: { registrations
   }, [registrations, athletes, academies, selectedCategory]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        {['Kyorugui', 'Poomsae', 'Kyopa (3 tábuas)', 'Kyopa (5 tábuas)'].map(cat => (
-          <button
-            key={cat}
-            onClick={() => setSelectedCategory(cat)}
-            className={cn(
-              "px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all",
-              selectedCategory === cat ? "bg-red-600 text-white shadow-md" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
-            )}
-          >
-            {cat}
-          </button>
-        ))}
-      </div>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+        <div>
+          <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Chaves de Luta</h2>
+          <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Visualização por categorias confirmadas</p>
+        </div>
+        <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 overflow-x-auto">
+          {['Kyorugui', 'Poomsae', 'Kyopa'].map(cat => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              className={cn(
+                "px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                selectedCategory === cat 
+                  ? "bg-red-600 text-white shadow-lg" 
+                  : "text-stone-500 hover:text-white"
+              )}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      </header>
 
       {Object.keys(groupedAthletes).length === 0 ? (
-        <Card className="p-12 text-center text-stone-500">
-          <Trophy className="w-12 h-12 mx-auto mb-4 text-stone-300" />
-          <p>Nenhum atleta confirmado nesta categoria ainda.</p>
+        <Card className="py-32 text-center border-white/5 bg-white/[0.02]">
+          <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center mx-auto mb-6 border border-white/5 group">
+            <Trophy className="w-10 h-10 text-stone-700 group-hover:text-red-600 group-hover:scale-110 transition-all" />
+          </div>
+          <p className="text-[10px] text-stone-600 font-black uppercase tracking-[0.2em]">Nenhum atleta confirmado nesta categoria</p>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {Object.entries(groupedAthletes).sort(([a], [b]) => a.localeCompare(b)).map(([groupKey, groupAthletes]: [string, any[]]) => (
-            <Card key={groupKey} className="p-6 border-t-4 border-t-red-600">
-              <h3 className="font-bold text-stone-900 mb-4 pb-2 border-b border-stone-100">{groupKey}</h3>
-              <div className="space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {Object.entries(groupedAthletes).map(([key, groupAthletes]) => (
+            <Card key={key} className="p-0 border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent overflow-hidden">
+              <div className="bg-white/5 px-8 py-4 border-b border-white/5 flex justify-between items-center">
+                <span className="text-[10px] font-black text-red-500 uppercase tracking-widest">{key}</span>
+                <span className="px-2 py-0.5 bg-red-600 rounded text-[9px] font-black text-white uppercase">{groupAthletes.length} Atletas</span>
+              </div>
+              <div className="p-8 space-y-4">
                 {groupAthletes.map((athlete, idx) => (
-                  <div key={athlete.id} className="flex items-center justify-between p-3 bg-stone-50 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <div className="w-6 h-6 rounded-full bg-red-100 text-red-700 flex items-center justify-center text-xs font-bold">
+                  <div key={athlete.id} className="flex justify-between items-center group/item">
+                    <div className="flex items-center gap-4">
+                      <div className="w-8 h-8 rounded-lg bg-stone-900 border border-white/5 flex items-center justify-center text-[10px] font-black text-white">
                         {idx + 1}
                       </div>
                       <div>
-                        <p className="font-bold text-sm text-stone-900">{athlete.name}</p>
-                        <p className="text-xs text-stone-500">{athlete.academy} • {athlete.belt}</p>
+                        <p className="font-black text-white uppercase tracking-tight text-sm">{athlete.name}</p>
+                        <p className="text-[9px] text-stone-500 font-bold uppercase tracking-widest mt-1 italic">{athlete.academy}</p>
                       </div>
                     </div>
-                    <span className="text-xs font-bold text-stone-400">{athlete.weight}kg</span>
+                    <div className="text-right">
+                       <BeltBadge belt={athlete.belt} size="sm" />
+                       <p className="text-[9px] font-black text-stone-600 uppercase tracking-widest mt-1.5">{athlete.weight}kg</p>
+                    </div>
                   </div>
                 ))}
               </div>
               {groupAthletes.length === 1 && (
-                <div className="mt-4 p-3 bg-amber-50 text-amber-800 text-xs rounded-lg flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4" />
-                  Atleta sozinho na chave. Necessário remanejamento.
+                <div className="m-8 mt-0 p-4 bg-amber-600/10 border border-amber-600/20 rounded-2xl flex items-center gap-3">
+                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+                  <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest leading-relaxed">
+                    Atleta único na chave. Necessário remanejamento técnico.
+                  </p>
                 </div>
               )}
             </Card>
           ))}
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 
-function AdminView({ profile, registrations, athletes, academies, receipts, settings, key }: { profile: UserProfile | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; settings: any; key?: string }) {
+function AdminView({ profile, user, registrations, athletes, academies, receipts, settings, onViewReceipt, key }: { profile: UserProfile | null; user: User | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; settings: any; onViewReceipt: (data: string) => void; key?: string }) {
   const [adminTab, setAdminTab] = useState<'finance' | 'competition'>('finance');
 
   const calculatePrice = (categories: string[]) => {
-    let total = 0;
-    if (categories.includes('Kyorugui') || categories.includes('Poomsae')) {
-      total += 90;
-    }
-    if (categories.includes('Kyopa (3 tábuas)')) total += 25;
-    if (categories.includes('Kyopa (5 tábuas)')) total += 35;
-    return total;
+    if (categories.length === 0) return 0;
+    if (categories.length === 1) return settings.priceSingle || 100;
+    return (settings.priceSingle || 100) + (categories.length - 1) * (settings.priceAdditional || 50);
   };
 
-  const academyStats = academies.map(academy => {
+  const academyStats = useMemo(() => academies.map(academy => {
     const academyRegs = registrations.filter(r => r.academyId === academy.id);
     const totalValue = academyRegs.reduce((sum, r) => sum + calculatePrice(r.categories), 0);
     const paidValue = academyRegs.filter(r => r.paymentStatus === 'Pago').reduce((sum, r) => sum + calculatePrice(r.categories), 0);
@@ -1863,7 +2092,7 @@ function AdminView({ profile, registrations, athletes, academies, receipts, sett
       pendingValue,
       pendingRegs: academyRegs.filter(r => r.paymentStatus === 'Pendente' || r.paymentStatus === 'Em Análise')
     };
-  }).filter(a => a.totalRegs > 0);
+  }).filter(a => a.totalRegs > 0), [academies, registrations, settings]);
 
   const handleApproveAll = async (academyId: string) => {
     if (!window.confirm('Aprovar todos os pagamentos pendentes desta academia?')) return;
@@ -1878,23 +2107,12 @@ function AdminView({ profile, registrations, athletes, academies, receipts, sett
         })
       ));
 
-      // Delete receipts for this academy
       const academyReceipts = receipts.filter(r => r.academyId === academyId);
       await Promise.all(academyReceipts.map(receipt => 
         deleteDoc(doc(db, 'receipts', receipt.id))
       ));
 
-      const academy = academies.find(a => a.id === academyId);
-      if (academy && academy.contact) {
-        const formattedPhone = formatWhatsAppNumber(academy.contact);
-        const text = `Olá Técnico(a) ${academy.coach}, os pagamentos pendentes da academia *${academy.name}* foram APROVADOS no 3º Festival União Lopes! As inscrições estão confirmadas. 🥋`;
-        
-        if (window.confirm('Pagamentos aprovados com sucesso! Deseja notificar a academia via WhatsApp?')) {
-          window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`, '_blank');
-        }
-      } else {
-        alert('Pagamentos aprovados com sucesso!');
-      }
+      alert('Pagamentos aprovados com sucesso!');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'registrations');
     }
@@ -1913,165 +2131,165 @@ function AdminView({ profile, registrations, athletes, academies, receipts, sett
       ));
       
       await deleteDoc(doc(db, 'receipts', receiptId));
-      
-      const academy = academies.find(a => a.id === academyId);
-      if (academy && academy.contact) {
-        const formattedPhone = formatWhatsAppNumber(academy.contact);
-        const text = `Olá Técnico(a) ${academy.coach}, houve um problema com o comprovante de pagamento enviado para a academia *${academy.name}* no 3º Festival União Lopes. As inscrições voltaram para o status Pendente. Por favor, verifique e envie novamente na plataforma. 🥋`;
-        
-        if (window.confirm('Comprovante rejeitado. Deseja notificar a academia via WhatsApp?')) {
-          window.open(`https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`, '_blank');
-        }
-      } else {
-        alert('Comprovante rejeitado.');
-      }
+      alert('Comprovante rejeitado.');
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'receipts');
     }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h2 className="text-2xl font-bold">Painel de Administração</h2>
-        <div className="flex bg-stone-100 p-1 rounded-xl">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+        <div>
+          <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Administração</h2>
+          <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Gestão financeira e operacional do evento</p>
+        </div>
+        <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5">
           <button 
             onClick={() => setAdminTab('finance')}
-            className={cn("px-4 py-2 rounded-lg text-sm font-bold transition-all", adminTab === 'finance' ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-700")}
+            className={cn("px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all", adminTab === 'finance' ? "bg-red-600 text-white shadow-lg" : "text-stone-500 hover:text-white")}
           >
             Financeiro
           </button>
           <button 
             onClick={() => setAdminTab('competition')}
-            className={cn("px-4 py-2 rounded-lg text-sm font-bold transition-all", adminTab === 'competition' ? "bg-white text-stone-900 shadow-sm" : "text-stone-500 hover:text-stone-700")}
+            className={cn("px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all", adminTab === 'competition' ? "bg-red-600 text-white shadow-lg" : "text-stone-500 hover:text-white")}
           >
-            Competição
+            Compromisso
           </button>
         </div>
-      </div>
+      </header>
 
       {adminTab === 'finance' ? (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="p-6 bg-stone-900 text-white">
-              <p className="text-stone-400 text-sm font-medium mb-1">Total Arrecadado</p>
-              <p className="text-3xl font-bold">R$ {academyStats.reduce((sum, a) => sum + a.paidValue, 0).toFixed(2).replace('.', ',')}</p>
+        <div className="space-y-10">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card className="p-8 border-white/5 bg-gradient-to-br from-emerald-600/10 to-transparent">
+              <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-2">Total Arrecadado</p>
+              <p className="text-4xl font-black text-white tracking-tighter italic">R$ {academyStats.reduce((sum, a) => sum + a.paidValue, 0).toFixed(2).replace('.', ',')}</p>
             </Card>
-            <Card className="p-6 bg-amber-50 border-amber-200">
-              <p className="text-amber-600 text-sm font-medium mb-1">Total Pendente</p>
-              <p className="text-3xl font-bold text-amber-900">R$ {academyStats.reduce((sum, a) => sum + a.pendingValue, 0).toFixed(2).replace('.', ',')}</p>
+            <Card className="p-8 border-white/5 bg-gradient-to-br from-amber-600/10 to-transparent">
+              <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-2">Total Pendente</p>
+              <p className="text-4xl font-black text-white tracking-tighter italic">R$ {academyStats.reduce((sum, a) => sum + a.pendingValue, 0).toFixed(2).replace('.', ',')}</p>
             </Card>
-        <Card className="p-6">
-          <p className="text-stone-500 text-sm font-medium mb-1">Total de Inscrições</p>
-          <p className="text-3xl font-bold text-stone-900">{registrations.length}</p>
-        </Card>
-      </div>
-
-      <div className="space-y-4">
-        <h3 className="text-xl font-bold pt-4">Configurações</h3>
-        <Card className="p-6 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div>
-            <h4 className="font-bold text-lg text-stone-900">Mercado Pago</h4>
-            <p className="text-sm text-stone-500">Ativar ou desativar o botão de pagamento via Mercado Pago para as academias.</p>
+            <Card className="p-8 border-white/5 bg-white/[0.02]">
+              <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-2">Inscrições Totais</p>
+              <p className="text-4xl font-black text-white tracking-tighter italic">{registrations.length}</p>
+            </Card>
           </div>
-          <button
-            onClick={async () => {
-              try {
-                await setDoc(doc(db, 'settings', 'payment'), {
-                  mercadoPagoEnabled: !settings.mercadoPagoEnabled
-                }, { merge: true });
-              } catch (e) {
-                alert('Erro ao atualizar configuração.');
-              }
-            }}
-            className={`w-14 h-8 rounded-full transition-colors relative ${settings.mercadoPagoEnabled ? 'bg-blue-600' : 'bg-stone-300'}`}
-          >
-            <div className={`w-6 h-6 rounded-full bg-white absolute top-1 transition-transform ${settings.mercadoPagoEnabled ? 'left-7' : 'left-1'}`} />
-          </button>
-        </Card>
 
-
-      </div>
-
-      <div className="space-y-4">
-        <h3 className="text-xl font-bold pt-4">Resumo por Academia</h3>
-        {academyStats.map(stat => (
-          <Card key={stat.id} className="p-6 flex flex-col md:flex-row justify-between items-center gap-4">
-            <div>
-              <h4 className="font-bold text-lg text-stone-900">{stat.name}</h4>
-              <p className="text-sm text-stone-500">{stat.totalRegs} inscrições no total</p>
-            </div>
-            
-            <div className="flex gap-8 text-right">
-              <div>
-                <p className="text-xs font-bold text-stone-400 uppercase tracking-wider">Pendente</p>
-                <p className="font-bold text-amber-600">R$ {stat.pendingValue.toFixed(2).replace('.', ',')}</p>
+          <Card className="border-white/5 bg-white/[0.02] p-8 flex flex-col md:flex-row justify-between items-center gap-6">
+            <div className="flex items-center gap-5">
+              <div className="p-4 bg-blue-600/10 rounded-2xl border border-blue-500/20">
+                <CreditCard className="w-8 h-8 text-blue-500" />
               </div>
               <div>
-                <p className="text-xs font-bold text-stone-400 uppercase tracking-wider">Pago</p>
-                <p className="font-bold text-emerald-600">R$ {stat.paidValue.toFixed(2).replace('.', ',')}</p>
-              </div>
-              <div>
-                <p className="text-xs font-bold text-stone-400 uppercase tracking-wider">Total</p>
-                <p className="font-bold text-stone-900">R$ {stat.totalValue.toFixed(2).replace('.', ',')}</p>
+                <h4 className="text-xl font-black text-white uppercase tracking-tighter italic">Mercado Pago</h4>
+                <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Botão de pagamento para academias</p>
               </div>
             </div>
-
-            {stat.pendingValue > 0 && (
-              <div className="flex flex-col gap-2">
-                <Button onClick={() => handleApproveAll(stat.id)} className="whitespace-nowrap">
-                  Aprovar Pendentes
-                </Button>
-                {receipts.filter(r => r.academyId === stat.id).map(receipt => (
-                  <div key={receipt.id} className="flex flex-col gap-2 mt-2 p-3 bg-amber-50 rounded-xl border border-amber-200">
-                    <p className="text-xs font-bold text-amber-900">Comprovante Enviado</p>
-                    <div className="flex gap-2">
-                      <a 
-                        href={receipt.receiptData} 
-                        download={`comprovante-${stat.name}.png`}
-                        className="text-xs py-1 px-2 h-auto flex-1 bg-white text-stone-900 border border-stone-200 rounded-xl font-medium flex items-center justify-center hover:bg-stone-50 transition-colors"
-                      >
-                        Ver Comprovante
-                      </a>
-                      <Button 
-                        variant="ghost" 
-                        className="text-xs py-1 px-2 h-auto text-red-600 hover:bg-red-50"
-                        onClick={() => handleRejectReceipt(receipt.id, stat.id)}
-                      >
-                        Rejeitar
-                      </Button>
-                    </div>
-
-                    {stat.pendingRegs.length > 0 && (
-                      <div className="mt-2 pt-2 border-t border-amber-200/50">
-                        <p className="text-[10px] font-bold text-amber-900 uppercase tracking-wider mb-2">Inscrições neste Comprovante</p>
-                        <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
-                          {stat.pendingRegs.map(reg => {
-                            const athlete = athletes.find(a => a.id === reg.athleteId);
-                            return (
-                              <div key={reg.id} className="flex justify-between items-center text-xs">
-                                <span className="font-medium text-stone-700 truncate mr-2">{athlete?.name || 'Atleta desconhecido'}</span>
-                                <span className="text-stone-500 whitespace-nowrap">{reg.categories.join(', ')}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+            <button
+              onClick={async () => {
+                try {
+                  await setDoc(doc(db, 'settings', 'payment'), {
+                    mercadoPagoEnabled: !settings.mercadoPagoEnabled
+                  }, { merge: true });
+                } catch (e) {
+                  alert('Erro ao atualizar configuração.');
+                }
+              }}
+              className={cn(
+                "w-16 h-8 rounded-full transition-all relative p-1",
+                settings.mercadoPagoEnabled ? 'bg-red-600' : 'bg-stone-800'
+              )}
+            >
+              <div className={cn(
+                "w-6 h-6 rounded-full bg-white transition-all shadow-lg",
+                settings.mercadoPagoEnabled ? 'ml-8' : 'ml-0'
+              )} />
+            </button>
           </Card>
-        ))}
-        {academyStats.length === 0 && (
-          <p className="text-stone-500 text-center py-10">Nenhuma inscrição registrada ainda.</p>
-        )}
-      </div>
-        </>
+
+          <Card className="border-white/5 bg-white/[0.02] overflow-hidden">
+            <div className="p-8 border-b border-white/5 bg-white/5">
+              <h3 className="text-xl font-black text-white italic uppercase tracking-tighter">Resumo por Academia</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[1000px]">
+                <thead>
+                  <tr className="bg-white/5 border-b border-white/5">
+                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Academia</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Responsável</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Atletas</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Pendente</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Pago</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em] text-center">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {academyStats.map(stat => {
+                    const academyReceipts = receipts.filter(r => r.academyId === stat.id);
+                    return (
+                      <tr key={stat.id} className="hover:bg-white/[0.03] transition-colors group/row">
+                        <td className="px-8 py-6">
+                           <p className="font-black text-white uppercase tracking-tight">{stat.name}</p>
+                           <p className="text-[9px] text-stone-500 font-bold uppercase tracking-widest mt-1 italic">{stat.contact}</p>
+                        </td>
+                        <td className="px-8 py-6">
+                           <p className="text-xs font-bold text-stone-300 uppercase tracking-tight">{stat.coach}</p>
+                        </td>
+                        <td className="px-8 py-6">
+                           <span className="px-2.5 py-1 bg-white/5 border border-white/10 rounded-lg text-[10px] font-black text-white">
+                             {stat.totalRegs}
+                           </span>
+                        </td>
+                        <td className="px-8 py-6 text-amber-500 font-black tabular-nums tracking-tighter">
+                           R$ {stat.pendingValue.toFixed(2).replace('.', ',')}
+                        </td>
+                        <td className="px-8 py-6 text-emerald-500 font-black tabular-nums tracking-tighter">
+                           R$ {stat.paidValue.toFixed(2).replace('.', ',')}
+                        </td>
+                        <td className="px-8 py-6">
+                          <div className="flex justify-center gap-3">
+                             {academyReceipts.length > 0 && (
+                               <div className="flex gap-2">
+                                 <Button 
+                                   variant="ghost" 
+                                   className="p-3 bg-blue-600/10 hover:bg-blue-600/20 text-blue-500 rounded-xl"
+                                   onClick={() => onViewReceipt(academyReceipts[0].receiptData)}
+                                 >
+                                    <FileText className="w-4 h-4" />
+                                 </Button>
+                                 <Button 
+                                   variant="ghost" 
+                                   className="p-3 bg-red-600/10 hover:bg-red-600/20 text-red-500 rounded-xl"
+                                   onClick={() => handleRejectReceipt(academyReceipts[0].id, stat.id)}
+                                 >
+                                    <Trash2 className="w-4 h-4" />
+                                 </Button>
+                               </div>
+                             )}
+                             {stat.pendingValue > 0 && (
+                               <Button 
+                                 variant="success" 
+                                 className="px-6 py-2.5 text-[10px] font-black uppercase tracking-widest shadow-emerald-600/20"
+                                 onClick={() => handleApproveAll(stat.id)}
+                               >
+                                 Liberar Lote
+                               </Button>
+                             )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
       ) : (
-        <CompetitionView registrations={registrations} athletes={athletes} academies={academies} />
+        <CompetitionView registrations={registrations} athletes={athletes} academies={academies} user={user!} />
       )}
-    </div>
+    </motion.div>
   );
 }
