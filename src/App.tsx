@@ -132,7 +132,7 @@ export default function App() {
       if (firebaseUser) {
         try {
           const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          const adminEmails = ['leo@laravitoria.com', 'tauyllin.edfisica@hotmail.com', 'tauyllin.tkd@gmail.com'];
+          const adminEmails = ['leo@laravitoria.com', 'tauyllin.edfisica@hotmail.com', 'tauyllin.tkd@gmail.com', 'carloswalesko@gmail.com'];
           const isSystemAdmin = adminEmails.includes(firebaseUser.email || '');
 
           if (userDoc.exists()) {
