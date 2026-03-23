@@ -132,7 +132,7 @@ export default function App() {
         setLoadingTimeout(true);
         setLoading(false);
       }
-    }, 8000);
+    }, 12000);
     return () => clearTimeout(timer);
   }, [loading]);
 
