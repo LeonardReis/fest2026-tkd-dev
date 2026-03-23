@@ -1,10 +1,16 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import firebaseConfig from '../firebase-applet-config.json';
+import homologConfig from '../firebase-homolog-config.json';
+import prodConfig from '../firebase-prod-config.json';
+
+const isProd = import.meta.env.VITE_FIREBASE_ENV === 'prod' || !import.meta.env.VITE_FIREBASE_ENV;
+const firebaseConfig = isProd ? prodConfig : homologConfig;
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+export const db = isProd 
+  ? getFirestore(app) 
+  : getFirestore(app, (homologConfig as any).firestoreDatabaseId);
 export const auth = getAuth(app);
 
 // Testar conexão
