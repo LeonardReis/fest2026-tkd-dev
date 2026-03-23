@@ -402,7 +402,7 @@ export default function App() {
 
             <div className="flex items-center justify-center gap-2 text-stone-500 text-sm font-medium">
               <Shield className="w-4 h-4" />
-              <span>Ambiente Seguro • Associação Colombo</span>
+              <span>Ambiente Seguro • Associação Colombo de Taekwondo</span>
             </div>
           </motion.div>
         </div>
@@ -428,7 +428,7 @@ export default function App() {
             </div>
             <div>
               <h2 className="font-black text-white leading-tight italic tracking-tight uppercase">3º Festival</h2>
-              <p className="text-[10px] text-red-500 font-black uppercase tracking-[0.2em]">União Lopes</p>
+              <p className="text-[10px] text-red-500 font-black uppercase tracking-[0.2em]">Assoc. Colombo • União Lopes</p>
             </div>
           </div>
 
