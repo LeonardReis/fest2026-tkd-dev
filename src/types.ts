@@ -42,6 +42,8 @@ export interface Registration {
   paymentStatus: 'Pendente' | 'Pago' | 'Em Análise';
   receiptUrl?: string;
   createdAt: string;
+  assignedCategory?: string;
+  isMatched?: boolean;
 }
 
 export enum OperationType {

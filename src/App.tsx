@@ -2036,7 +2036,9 @@ function CompetitionView({ registrations, athletes, academies, user }: { registr
       const genderStr = athlete.gender === 'M' ? 'Masculino' : 'Feminino';
       
       let groupKey = '';
-      if (isKyopaTab) {
+      if (reg.assignedCategory) {
+        groupKey = reg.assignedCategory;
+      } else if (isKyopaTab) {
         groupKey = `KYOPA (Geral)`;
       } else if (selectedCategory === 'Kyorugui') {
         groupKey = `${ageCat} | ${isDan} | ${genderStr} | ${weightCat}`;
@@ -2047,12 +2049,37 @@ function CompetitionView({ registrations, athletes, academies, user }: { registr
       if (!groups[groupKey]) groups[groupKey] = [];
       groups[groupKey].push({
         ...athlete,
+        regId: reg.id,
+        isMatched: reg.isMatched,
+        assignedCategory: reg.assignedCategory,
         academy: academies.find(a => a.id === athlete.academyId)?.name || 'Desconhecida'
       });
     });
     
     return groups;
   }, [registrations, athletes, academies, selectedCategory]);
+
+  const handleManualMatch = async (regId: string, targetCategory: string) => {
+    try {
+      await updateDoc(doc(db, 'registrations', regId), {
+        assignedCategory: targetCategory,
+        isMatched: true
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'registrations');
+    }
+  };
+
+  const handleResetMatch = async (regId: string) => {
+    try {
+      await updateDoc(doc(db, 'registrations', regId), {
+        assignedCategory: null,
+        isMatched: false
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'registrations');
+    }
+  };
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
@@ -2106,19 +2133,55 @@ function CompetitionView({ registrations, athletes, academies, user }: { registr
                         <p className="text-[9px] text-stone-500 font-bold uppercase tracking-widest mt-1 italic">{athlete.academy}</p>
                       </div>
                     </div>
-                    <div className="text-right">
-                       <BeltBadge belt={athlete.belt} size="sm" />
-                       <p className="text-[9px] font-black text-stone-600 uppercase tracking-widest mt-1.5">{athlete.weight}kg</p>
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                         <BeltBadge belt={athlete.belt} size="sm" />
+                         <p className="text-[9px] font-black text-stone-600 uppercase tracking-widest mt-1.5">{athlete.weight}kg</p>
+                      </div>
+                      {profile?.role === 'admin' && athlete.assignedCategory && (
+                        <Button 
+                          variant="ghost" 
+                          className="p-2 bg-red-600/10 hover:bg-red-600/30 text-red-500 rounded-lg"
+                          onClick={() => handleResetMatch(athlete.regId)}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
               {groupAthletes.length === 1 && (
-                <div className="m-8 mt-0 p-4 bg-amber-600/10 border border-amber-600/20 rounded-2xl flex items-center gap-3">
-                  <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-                  <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest leading-relaxed">
-                    Atleta único na chave. Necessário remanejamento técnico.
-                  </p>
+                <div className="m-8 mt-0 p-4 bg-amber-600/10 border border-amber-600/20 rounded-2xl flex flex-col gap-3">
+                  <div className="flex items-center gap-3">
+                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+                    <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest leading-relaxed">
+                      Atleta único na chave (W.O.).
+                    </p>
+                  </div>
+                  {profile?.role === 'admin' && (
+                    <div className="flex flex-wrap gap-2 pt-2 border-t border-amber-600/20">
+                      <p className="w-full text-[8px] text-amber-600/60 font-black uppercase tracking-widest mb-1">Mover para:</p>
+                      {Object.keys(groupedAthletes).filter(k => k !== key).slice(0, 3).map(targetKey => (
+                        <button
+                          key={targetKey}
+                          onClick={() => handleManualMatch(groupAthletes[0].regId, targetKey)}
+                          className="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/40 rounded-lg text-[8px] font-black text-amber-600 transition-all border border-amber-600/20 truncate max-w-[150px]"
+                        >
+                          {targetKey.split('|').pop()}
+                        </button>
+                      ))}
+                      <button
+                        onClick={() => {
+                          const target = prompt('Digite o nome da categoria exata ou chave:', key);
+                          if (target) handleManualMatch(groupAthletes[0].regId, target);
+                        }}
+                        className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-[8px] font-black text-stone-400 border border-white/5"
+                      >
+                        Outra...
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </Card>
