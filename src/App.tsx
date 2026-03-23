@@ -428,7 +428,7 @@ export default function App() {
             </div>
             <div>
               <h2 className="font-black text-white leading-tight italic tracking-tight uppercase">3º Festival</h2>
-              <p className="text-[10px] text-red-500 font-black uppercase tracking-[0.2em]">Assoc. Colombo • União Lopes</p>
+              <p className="text-[10px] text-red-500 font-black uppercase tracking-[0.2em]">União Lopes</p>
             </div>
           </div>
 
@@ -462,6 +462,23 @@ export default function App() {
               <LogOut className="w-4 h-4" />
               <span>Sair do Sistema</span>
             </button>
+
+            <div className="pt-4 mt-4 border-t border-white/5 space-y-4">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/5 p-1 border border-white/10 opacity-60">
+                  <img src={settings?.festivalLogo || UNIAO_LOPES_LOGO} alt="Realização" className="w-full h-full object-contain" />
+                </div>
+                <div className="text-center space-y-1">
+                  <p className="text-[9px] text-stone-500 font-black uppercase tracking-widest leading-tight">Realização</p>
+                  <p className="text-[10px] text-stone-400 font-bold uppercase tracking-tighter">Associação Colombo de Taekwondo</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-center gap-2 py-2 px-4 rounded-lg bg-stone-900/50 border border-white/5">
+                <Shield className="w-3 h-3 text-red-500/50" />
+                <span className="text-[9px] font-black text-stone-600 uppercase tracking-[0.2em] italic">Indomitable Spirit Data Lab</span>
+              </div>
+            </div>
           </div>
         </aside>
 
