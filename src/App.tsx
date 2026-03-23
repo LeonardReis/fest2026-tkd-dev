@@ -112,6 +112,7 @@ export default function App() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
   const [view, setView] = useState<'dashboard' | 'athletes' | 'registrations' | 'academy' | 'admin' | 'profile'>('dashboard');
   
   const [academies, setAcademies] = useState<Academy[]>([]);
@@ -123,7 +124,17 @@ export default function App() {
 
   useEffect(() => {
     document.title = "3º Festival União Lopes - Portal";
-  }, []);
+    
+    // Safety timeout to prevent infinite loading
+    const timer = setTimeout(() => {
+      if (loading) {
+        console.warn("Loading timeout reached. Forcing loading state to false.");
+        setLoadingTimeout(true);
+        setLoading(false);
+      }
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [loading]);
 
   // Auth Listener
   useEffect(() => {
@@ -255,8 +266,32 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-stone-900"></div>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-stone-950 gap-8">
+        <div className="relative w-16 h-16">
+          <div className="absolute inset-0 border-4 border-white/5 rounded-full" />
+          <div className="absolute inset-0 border-4 border-red-600 rounded-full border-t-transparent animate-spin" />
+        </div>
+        {loadingTimeout && (
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center space-y-6 max-w-sm px-6"
+          >
+            <div className="space-y-2">
+              <p className="text-white font-black uppercase tracking-tighter text-xl italic italic leading-none">Conector Recusado</p>
+              <p className="text-stone-500 text-[10px] uppercase font-bold tracking-widest leading-relaxed">
+                Não foi possível estabelecer conexão com o Firebase. Verifique se o seu domínio está autorizado no console.
+              </p>
+            </div>
+            <Button 
+              onClick={() => window.location.reload()} 
+              variant="secondary" 
+              className="w-full py-4 text-[10px] font-black uppercase tracking-[0.2em]"
+            >
+              Reiniciar Conector
+            </Button>
+          </motion.div>
+        )}
       </div>
     );
   }
