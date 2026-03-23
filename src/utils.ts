@@ -29,13 +29,13 @@ export function getAgeCategory(birthDate: string, belt: string, currentYear: num
   const age = currentYear - birthYear;
   const isDan = belt.includes('Dan');
   
-  if (age >= 5 && age <= 6) return 'Fraldinha (Sub-07)';
-  if (age >= 7 && age <= 8) return 'Mirim (Sub-09)';
-  if (age >= 9 && age <= 11) return 'Infantil (Sub-11)';
+  if (age <= 6) return 'Fraldinha (Até 6 anos)';
+  if (age >= 7 && age <= 8) return 'Mirim (7 a 8 anos)';
+  if (age >= 9 && age <= 11) return 'Infantil (9 a 11 anos)';
   if (age >= 12 && age <= 14) return 'Cadete (Sub-14)';
-  if (age >= 15 && age <= 17) return 'Junior (Sub-17)';
-  if (age >= 18 && age <= 21) return isDan ? 'Sub-21 / Adulto' : 'Adulto (Sênior)';
-  if (age >= 22 && age <= 30) return 'Adulto (Sênior)';
+  if (age >= 15 && age <= 17) return 'Juvenil (15 a 17 anos)';
+  if (age >= 18 && age <= 21) return isDan ? 'Sub-21 / Adulto' : 'Adulto (18 a 30 anos)';
+  if (age >= 22 && age <= 30) return 'Adulto (18 a 30 anos)';
   if (age >= 31 && age <= 35) return 'Master 1';
   if (age >= 36 && age <= 40) return 'Master 2';
   if (age >= 41 && age <= 45) return 'Master 3';
@@ -50,11 +50,11 @@ export function getAgeCategory(birthDate: string, belt: string, currentYear: num
 export function getWeightCategory(ageCategory: string, gender: 'M' | 'F', weight: number, belt: string): string {
   const isDan = belt.includes('Dan');
 
-  if (ageCategory === 'Fraldinha (Sub-07)') {
+  if (ageCategory === 'Fraldinha (Até 6 anos)') {
     return 'Sem peso (Festival)';
   }
 
-  if (ageCategory === 'Mirim (Sub-09)') {
+  if (ageCategory === 'Mirim (7 a 8 anos)') {
     if (weight <= 22) return 'Até 22kg';
     if (weight <= 27) return 'Até 27kg';
     if (weight <= 32) return 'Até 32kg';
@@ -62,7 +62,7 @@ export function getWeightCategory(ageCategory: string, gender: 'M' | 'F', weight
     return 'Acima de 37kg';
   }
   
-  if (ageCategory === 'Infantil (Sub-11)') {
+  if (ageCategory === 'Infantil (9 a 11 anos)') {
     if (weight <= 30) return 'Até 30kg';
     if (weight <= 35) return 'Até 35kg';
     if (weight <= 40) return 'Até 40kg';
@@ -112,7 +112,7 @@ export function getWeightCategory(ageCategory: string, gender: 'M' | 'F', weight
     }
   }
   
-  if (ageCategory === 'Junior (Sub-17)') {
+  if (ageCategory === 'Juvenil (15 a 17 anos)') {
     if (isDan) {
       if (gender === 'M') {
         if (weight <= 45) return 'Até 45kg';
@@ -154,7 +154,7 @@ export function getWeightCategory(ageCategory: string, gender: 'M' | 'F', weight
     }
   }
   
-  if (ageCategory === 'Adulto (Sênior)' || ageCategory === 'Sub-21 / Adulto' || ageCategory === 'Master 1' || ageCategory === 'Master 2' || ageCategory === 'Master 3' || ageCategory === 'Master 4') {
+  if (ageCategory === 'Adulto (18 a 30 anos)' || ageCategory === 'Sub-21 / Adulto' || ageCategory === 'Master 1' || ageCategory === 'Master 2' || ageCategory === 'Master 3' || ageCategory === 'Master 4') {
     if (isDan) {
       if (gender === 'M') {
         if (weight <= 54) return 'Até 54kg';
