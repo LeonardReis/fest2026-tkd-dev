@@ -2010,7 +2010,7 @@ function ProfileView({ profile, user, key }: { profile: UserProfile | null; user
   );
 }
 
-function CompetitionView({ registrations, athletes, academies, user }: { registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; user: User }) {
+function CompetitionView({ registrations, athletes, academies, user, profile }: { registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; user: User; profile: UserProfile | null }) {
   const [selectedCategory, setSelectedCategory] = useState<string>('Kyorugui');
   
   const groupedAthletes = useMemo(() => {
@@ -2419,7 +2419,7 @@ function AdminView({ profile, user, registrations, athletes, academies, receipts
           </Card>
         </div>
       ) : (
-        <CompetitionView registrations={registrations} athletes={athletes} academies={academies} user={user!} />
+        <CompetitionView registrations={registrations} athletes={athletes} academies={academies} user={user!} profile={profile} />
       )}
     </motion.div>
   );
