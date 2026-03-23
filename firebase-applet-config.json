@@ -1,10 +1,9 @@
 {
-  "projectId": "gen-lang-client-0096143175",
-  "appId": "1:733887278986:web:fac58ec5de89b91cb06273",
-  "apiKey": "AIzaSyCVDU_i6y_PsR7aLtzRlchZFhIHKMo3nkc",
-  "authDomain": "gen-lang-client-0096143175.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-06b10d86-5a53-4b73-abd4-7f3a12e3457f",
-  "storageBucket": "gen-lang-client-0096143175.firebasestorage.app",
-  "messagingSenderId": "733887278986",
+  "projectId": "fest2026-tkd-dev",
+  "appId": "1:954723484864:web:1c8808adb04084c4bfd925",
+  "apiKey": "AIzaSyAvXHRZXErN0LiAQTffcA-Xlh8fevRWJVw",
+  "authDomain": "fest2026-tkd-dev.firebaseapp.com",
+  "storageBucket": "fest2026-tkd-dev.firebasestorage.app",
+  "messagingSenderId": "954723484864",
   "measurementId": ""
 }
