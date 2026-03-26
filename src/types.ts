@@ -7,7 +7,7 @@ export interface UserProfile {
   academyId?: string;
   displayName?: string;
   photoURL?: string;
-  birthDate?: string;
+  birthYear?: number;
   gender?: 'M' | 'F';
 }
 
@@ -24,7 +24,7 @@ export interface Academy {
 export interface Athlete {
   id: string;
   name: string;
-  birthDate: string;
+  birthYear: number;
   gender: 'M' | 'F';
   belt: string;
   weight: number;
@@ -44,6 +44,12 @@ export interface Registration {
   createdAt: string;
   assignedCategory?: string;
   isMatched?: boolean;
+  results?: { 
+    groupKey: string; 
+    place: 1 | 2 | 3 | 'WO' | null;
+    score?: number; // Para Poomsae/Kyopa (ex: 9.50)
+    points?: number; // Para Kyorugui (ex: 24)
+  }[];
 }
 
 export enum OperationType {
