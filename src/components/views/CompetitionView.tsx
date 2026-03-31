@@ -118,22 +118,48 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
             return a;
           });
 
+          // Ordenar decrescente
           const sorted = [...updatedAthletes].sort((a, b) => {
             const valA = (field === 'score' ? a.score : a.points) || 0;
             const valB = (field === 'score' ? b.score : b.points) || 0;
             return (Number(valB) || 0) - (Number(valA) || 0);
           });
 
+          // Atribuir lugares automaticamente onde não houver empate
           for (let i = 0; i < sorted.length; i++) {
-            const place = (i === 0) ? 1 : (i === 1) ? 2 : (i === 2) ? 3 : null;
+            const currentVal = (field === 'score' ? sorted[i].score : sorted[i].points) || 0;
+            const prevVal = i > 0 ? (field === 'score' ? sorted[i-1].score : sorted[i-1].points) || 0 : null;
+            const nextVal = i < sorted.length - 1 ? (field === 'score' ? sorted[i+1].score : sorted[i+1].points) || 0 : null;
+            
+            // Empate apenas se ambos tiverem pontuação > 0
+            const isTied = currentVal > 0 && (currentVal === prevVal || currentVal === nextVal);
+            
+            let place: any = null;
+            
+            // Só classifica se tiver pontuação > 0 OU se for atleta Único (W.O.)
+            if (currentVal > 0 || sorted.length === 1) {
+              if (i === 0) place = 1;
+              else if (i === 1) place = 2;
+              else if (i === 2) place = 3;
+            }
+            
+            // Se houver empate técnico, mantém a escolha manual do admin (se existir)
+            if (isTied) {
+              const currentAthleteInLoop = updatedAthletes.find(a => a.regId === sorted[i].regId);
+              place = currentAthleteInLoop?.place || null;
+            }
+
             const targetReg = registrations.find(r => r.id === sorted[i].regId);
             if (targetReg) {
               let targetResults = [...(targetReg.results || [])];
               let tIdx = targetResults.findIndex(r => r.groupKey === groupKey);
+              const athleteVal = (field === 'score' ? sorted[i].score : sorted[i].points);
+              
+              const resultData = { groupKey, place, [field]: athleteVal };
               if (tIdx >= 0) {
-                targetResults[tIdx] = { ...targetResults[tIdx], place, [field]: sorted[i][field] };
+                targetResults[tIdx] = { ...targetResults[tIdx], ...resultData };
               } else {
-                targetResults.push({ groupKey, place, [field]: sorted[i][field] });
+                targetResults.push(resultData as any);
               }
               await updateDoc(doc(db, 'registrations', sorted[i].regId), { results: targetResults });
             }
@@ -262,11 +288,24 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
                                 )}
                                 
                                 <select 
-                                  className="bg-black/40 border border-white/10 rounded-lg text-[10px] font-black uppercase text-stone-300 px-2 py-1 outline-none focus:border-red-500/50"
+                                  className={cn(
+                                    "bg-black/40 border border-white/10 rounded-lg text-[10px] font-black uppercase px-2 py-1 outline-none focus:border-red-500/50 transition-all",
+                                    (athlete.points === 0 && athlete.score === 0) ? "opacity-30 cursor-not-allowed" : "text-stone-300 border-amber-500/50"
+                                  )}
                                   value={athlete.place || ''}
                                   onChange={(e) => handleUpdateScores(key, athlete.regId, 'place', e.target.value === 'WO' ? 'WO' : (parseInt(e.target.value) || null))}
+                                  disabled={!(
+                                    // Habilitar se houver empate técnico
+                                    groupAthletes.some(other => 
+                                      other.id !== athlete.id && 
+                                      ((selectedCategory === 'Kyorugui' && athlete.points > 0 && athlete.points === other.points) ||
+                                       (selectedCategory !== 'Kyorugui' && athlete.score > 0 && athlete.score === other.score))
+                                    ) || 
+                                    athlete.place === 'WO' ||
+                                    !athlete.place
+                                  )}
                                 >
-                                  <option value="">Pos...</option>
+                                  <option value="">{groupAthletes.some(other => other.id !== athlete.id && (athlete.points > 0 && athlete.points === other.points)) ? 'Decisão...' : 'Pos...'}</option>
                                   <option value="1">1º (Ouro)</option>
                                   <option value="2">2º (Prata)</option>
                                   <option value="3">3º (Bronze)</option>
@@ -310,7 +349,7 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
                         Atleta único na chave (W.O.).
                       </p>
                     </div>
-                    {profile?.role === 'admin' && (
+                    {profile?.role === 'admin' && selectedCategory !== 'Kyopa' && (
                       <div className="flex flex-wrap gap-2 pt-2 border-t border-amber-600/20">
                         <p className="w-full text-[8px] text-amber-600/60 font-black uppercase tracking-widest mb-1">Mover para:</p>
                         {Object.keys(groupedAthletes).filter(k => k !== key).slice(0, 3).map(targetKey => (
