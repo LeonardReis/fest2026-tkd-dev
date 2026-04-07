@@ -42,6 +42,7 @@ export interface Registration {
   paymentStatus: 'Pendente' | 'Pago' | 'Em Análise';
   receiptUrl?: string;
   createdAt: string;
+  isElite?: boolean;
   assignedCategory?: string;
   isMatched?: boolean;
   results?: { 
@@ -49,6 +50,7 @@ export interface Registration {
     place: 1 | 2 | 3 | 'WO' | null;
     score?: number; // Para Poomsae/Kyopa (ex: 9.50)
     points?: number; // Para Kyorugui (ex: 24)
+    bracketPosition?: number; // Posição sorteada (1 a N)
   }[];
 }
 

@@ -28,7 +28,14 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
       
       const ageCat = getAgeCategory(athlete.birthYear, athlete.belt);
       const weightCat = getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt);
-      const isDan = athlete.belt.includes('Dan') ? 'Preta' : 'Colorida';
+      const b = athlete.belt.toLowerCase();
+      const beltType = (b.includes('dan') || reg.isElite)
+        ? 'Preta' 
+        : (b.includes('branca') || b.includes('10º gub'))
+          ? 'Branca' 
+          : (b.includes('azul escuro') || b.includes('vermelha') || b.includes('3º gub') || b.includes('2º gub') || b.includes('1º gub'))
+            ? 'Graduada'
+            : 'Colorida';
       const genderStr = athlete.gender === 'M' ? 'Masculino' : 'Feminino';
       
       categoriesInTab.forEach(catItem => {
@@ -38,9 +45,9 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
         } else if (isKyopaTab) {
           groupKey = `${catItem} - ${genderStr}`;
         } else if (selectedCategory === 'Kyorugui') {
-          groupKey = `${ageCat} | ${isDan} | ${genderStr} | ${weightCat}`;
+          groupKey = `${ageCat} | ${beltType} | ${genderStr} | ${weightCat}`;
         } else {
-          groupKey = `${ageCat} | ${isDan} | ${genderStr}`;
+          groupKey = `${ageCat} | ${beltType} | ${genderStr}`;
         }
         
         if (!initialGroups[groupKey]) initialGroups[groupKey] = [];
@@ -50,20 +57,37 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
             ...athlete,
             regId: reg.id,
             ageCat,
+            isLocked: reg.status === 'Confirmado',
+            isElite: reg.isElite,
             isMatched: reg.isMatched,
             assignedCategory: reg.assignedCategory,
             academy: academies.find(a => a.id === athlete.academyId)?.name || 'Desconhecida',
             place: result?.place,
             score: result?.score,
-            points: result?.points
+            points: result?.points,
+            bracketPosition: result?.bracketPosition
           });
         }
       });
     });
 
+    const finalGroups: Record<string, any[]> = {};
+    Object.entries(initialGroups).forEach(([key, groupAthletes]) => {
+      if (selectedCategory === 'Poomsae' && groupAthletes.length > 4) {
+        // Subdivide em grupos de 4
+        for (let i = 0; i < groupAthletes.length; i += 4) {
+          const chunk = groupAthletes.slice(i, i + 4);
+          const groupNum = Math.floor(i / 4) + 1;
+          finalGroups[`${key} - G${groupNum}`] = chunk;
+        }
+      } else {
+        finalGroups[key] = groupAthletes;
+      }
+    });
+
     if (profile?.role !== 'admin') {
       const filteredGroups: Record<string, any[]> = {};
-      Object.entries(initialGroups).forEach(([key, groupAthletes]) => {
+      Object.entries(finalGroups).forEach(([key, groupAthletes]) => {
         if (groupAthletes.some(a => a.academyId === profile?.academyId)) {
           filteredGroups[key] = groupAthletes;
         }
@@ -71,7 +95,7 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
       return filteredGroups;
     }
     
-    return initialGroups;
+    return finalGroups;
   }, [registrations, athletes, academies, selectedCategory, profile]);
 
   const handleManualMatch = async (regId: string, targetCategory: string) => {
@@ -91,6 +115,57 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
         assignedCategory: null,
         isMatched: false
       });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'registrations');
+    }
+  };
+
+  const handleDrawGroup = async (groupKey: string, groupAthletes: any[]) => {
+    try {
+      const confirmedRegs = registrations.filter(r => 
+        r.status === 'Confirmado' && 
+        groupAthletes.some(a => a.regId === r.id)
+      );
+      
+      const shuffled = [...confirmedRegs].sort(() => Math.random() - 0.5);
+      
+      for (let i = 0; i < shuffled.length; i++) {
+        const reg = shuffled[i];
+        let newResults = [...(reg.results || [])];
+        let resIdx = newResults.findIndex(r => r.groupKey === groupKey);
+        
+        const bracketPosition = i + 1;
+        
+        if (resIdx >= 0) {
+          newResults[resIdx] = { ...newResults[resIdx], bracketPosition };
+        } else {
+          newResults.push({ groupKey, place: null, bracketPosition });
+        }
+        
+        await updateDoc(doc(db, 'registrations', reg.id), { results: newResults });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'registrations');
+    }
+  };
+
+  const handleResetDraw = async (groupKey: string, groupAthletes: any[]) => {
+    try {
+      const confirmedRegs = registrations.filter(r => 
+        r.status === 'Confirmado' && 
+        groupAthletes.some(a => a.regId === r.id)
+      );
+      
+      for (const reg of confirmedRegs) {
+        let newResults = (reg.results || []).map(r => {
+          if (r.groupKey === groupKey) {
+            const { bracketPosition, ...rest } = r;
+            return rest;
+          }
+          return r;
+        });
+        await updateDoc(doc(db, 'registrations', reg.id), { results: newResults });
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'registrations');
     }
@@ -212,133 +287,227 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
             // Extrair dados de rounds e regras para o grupo (baseado no 1º atleta)
             const firstAthlete = groupAthletes[0];
             const rounds = selectedCategory === 'Kyorugui' ? getFightRounds(firstAthlete?.ageCat || '') : null;
-            const poomsaeName = selectedCategory === 'Poomsae' && firstAthlete ? getPoomsaeByBelt(firstAthlete.belt) : null;
+            const poomsaeName = selectedCategory === 'Poomsae' && firstAthlete ? getPoomsaeByBelt(firstAthlete.belt, firstAthlete.isElite) : null;
 
             return (
               <Card key={key} className="p-0 border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent overflow-hidden">
                 {/* Header da chave */}
-                <div className="bg-white/5 px-6 py-4 border-b border-white/5">
-                  <div className="flex justify-between items-start gap-3">
-                    <span className="text-[10px] font-black text-red-500 uppercase tracking-widest leading-tight">{key}</span>
-                    <span className="shrink-0 px-2 py-0.5 bg-red-600 rounded text-[9px] font-black text-white uppercase">{groupAthletes.length} Atletas</span>
-                  </div>
-                  {/* Tempo de luta (Kyorugui) */}
-                  {rounds && (
-                    <div className="flex items-center gap-2 mt-2">
-                      <Clock className="w-3 h-3 text-stone-500" />
-                      <span className="text-[9px] font-black text-stone-500 uppercase tracking-widest">
-                        {rounds.rounds} rounds × {rounds.duration} • intervalo {rounds.interval}
-                      </span>
+                <div className="bg-white/5 px-6 py-4 border-b border-white/5 flex justify-between items-center">
+                  <div>
+                    <div className="flex justify-between items-start gap-3">
+                      <span className="text-[10px] font-black text-red-500 uppercase tracking-widest leading-tight">{key}</span>
+                      <span className="shrink-0 px-2 py-0.5 bg-red-600 rounded text-[9px] font-black text-white uppercase">{groupAthletes.length} Atletas</span>
                     </div>
-                  )}
-                  {/* Poomsae por faixa */}
-                  {poomsaeName && (
-                    <div className="mt-2 px-2 py-1 bg-blue-500/10 border border-blue-500/20 rounded-lg inline-flex">
-                      <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest">📋 {poomsaeName}</span>
+                    {/* Tempo de luta (Kyorugui) */}
+                    {rounds && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <Clock className="w-3 h-3 text-stone-500" />
+                        <span className="text-[9px] font-black text-stone-500 uppercase tracking-widest">
+                          {rounds.rounds} rounds × {rounds.duration} • intervalo {rounds.interval}
+                        </span>
+                      </div>
+                    )}
+                    {/* Poomsae por faixa */}
+                    {poomsaeName && (
+                      <div className="mt-2 px-2 py-1 bg-blue-500/10 border border-blue-500/20 rounded-lg inline-flex">
+                        <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest">📋 {poomsaeName}</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {profile?.role === 'admin' && selectedCategory === 'Kyorugui' && groupAthletes.length > 1 && (
+                    <div className="flex gap-2">
+                      {!groupAthletes[0].bracketPosition ? (
+                        <Button 
+                          className="bg-amber-600 hover:bg-amber-700 text-[9px] h-7 px-3"
+                          onClick={() => handleDrawGroup(key, groupAthletes)}
+                        >
+                          Realizar Sorteio
+                        </Button>
+                      ) : (
+                        <Button 
+                          variant="ghost"
+                          className="text-stone-500 hover:text-white text-[9px] h-7 px-3"
+                          onClick={() => handleResetDraw(key, groupAthletes)}
+                        >
+                          Refazer Sorteio
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
 
                 <div className="p-6 space-y-4">
-                  {groupAthletes.map((athlete, idx) => {
-                    const fightRules = selectedCategory === 'Kyorugui' ? getFightRules(athlete.belt) : null;
-
-                    return (
-                      <div key={athlete.id} className="flex justify-between items-center group/item">
-                        <div className="flex items-center gap-4">
-                          <div className="w-8 h-8 rounded-lg bg-stone-900 border border-white/5 flex items-center justify-center text-[10px] font-black text-white">
-                            {idx + 1}
+                  {/* Visualização de Chaveamento para Kyorugui Sorteado */}
+                  {selectedCategory === 'Kyorugui' && groupAthletes[0]?.bracketPosition ? (
+                    <div className="space-y-6">
+                      {/* Agrupar em pares */}
+                      {(() => {
+                        const sorted = [...groupAthletes].sort((a, b) => (a.bracketPosition || 0) - (b.bracketPosition || 0));
+                        const matches = [];
+                        for (let i = 0; i < sorted.length; i += 2) {
+                          matches.push([sorted[i], sorted[i+1]]);
+                        }
+                        
+                        return matches.map((match, mIdx) => (
+                          <div key={mIdx} className="relative">
+                            <div className="absolute -left-3 top-0 bottom-0 w-px bg-white/10" />
+                            <p className="text-[8px] font-black text-stone-600 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                              {sorted.length > 2 ? `Confronto ${mIdx + 1}` : 'Grande Final'}
+                            </p>
+                            <div className="space-y-3">
+                              {match.map((matchAthlete, aIdx) => matchAthlete && (
+                                <div key={matchAthlete.id || `bye-${aIdx}`} className="flex justify-between items-center p-3 bg-white/[0.02] border border-white/5 rounded-xl group/match">
+                                  <div className="flex items-center gap-4">
+                                    <div className={cn(
+                                      "w-6 h-6 rounded flex items-center justify-center text-[10px] font-black text-white",
+                                      aIdx === 0 ? "bg-blue-600" : "bg-red-600"
+                                    )}>
+                                      {aIdx === 0 ? 'A' : 'B'}
+                                    </div>
+                                    <div>
+                                      <p className="font-black text-white uppercase tracking-tight text-xs">{matchAthlete.name}</p>
+                                      <p className="text-[8px] text-stone-500 font-bold uppercase tracking-widest mt-0.5">{matchAthlete.academy}</p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    {profile?.role === 'admin' && (
+                                      <input 
+                                        type="number"
+                                        placeholder="Pts"
+                                        className="w-12 bg-black/40 border border-white/10 rounded-lg text-[10px] font-black text-center text-white p-1 outline-none focus:border-red-500/50"
+                                        value={matchAthlete.points || ''}
+                                        onChange={(e) => handleUpdateScores(key, matchAthlete.regId, 'points', parseInt(e.target.value))}
+                                      />
+                                    )}
+                                    <select 
+                                      className={cn(
+                                        "bg-black/40 border border-white/10 rounded-lg text-[10px] font-black uppercase px-2 py-1 outline-none",
+                                        matchAthlete.place ? "text-amber-500 border-amber-500/50" : "text-stone-500"
+                                      )}
+                                      value={matchAthlete.place || ''}
+                                      onChange={(e) => handleUpdateScores(key, matchAthlete.regId, 'place', parseInt(e.target.value) || null)}
+                                      disabled={profile?.role !== 'admin'}
+                                    >
+                                      <option value="">Pos...</option>
+                                      <option value="1">1º</option>
+                                      <option value="2">2º</option>
+                                      <option value="3">3º</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              ))}
+                              {!match[1] && (
+                                <div className="p-3 border border-dashed border-white/5 rounded-xl text-center">
+                                  <p className="text-[8px] font-black text-stone-600 uppercase tracking-widest">Avança por Bye (Sorteio)</p>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-black text-white uppercase tracking-tight text-sm">{athlete.name}</p>
-                            <p className="text-[9px] text-stone-500 font-bold uppercase tracking-widest mt-0.5 italic">{athlete.academy}</p>
-                            {/* Regras de contato */}
-                            {fightRules && (
-                              <span className={cn("text-[8px] font-black uppercase tracking-widest", fightRules.color)}>
-                                ⚡ {fightRules.label}
-                              </span>
+                        ));
+                      })()}
+                    </div>
+                  ) : (
+                    groupAthletes.map((athlete, idx) => {
+                      const fightRules = selectedCategory === 'Kyorugui' ? getFightRules(athlete.belt, athlete.isElite) : null;
+
+                      return (
+                        <div key={athlete.id} className="flex justify-between items-center group/item">
+                          <div className="flex items-center gap-4">
+                            <div className="w-8 h-8 rounded-lg bg-stone-900 border border-white/5 flex items-center justify-center text-[10px] font-black text-white">
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <p className="font-black text-white uppercase tracking-tight text-sm">{athlete.name}</p>
+                              <p className="text-[9px] text-stone-500 font-bold uppercase tracking-widest mt-0.5 italic">{athlete.academy}</p>
+                              {/* Regras de contato */}
+                              {fightRules && (
+                                <span className={cn("text-[8px] font-black uppercase tracking-widest", fightRules.color)}>
+                                  ⚡ {fightRules.label}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <BeltBadge belt={athlete.belt} size="sm" />
+                              <p className="text-[9px] font-black text-stone-600 uppercase tracking-widest mt-1.5">{athlete.weight}kg</p>
+                            </div>
+                            {profile?.role === 'admin' && (
+                              <div className="flex flex-col items-end gap-2">
+                                <div className="flex items-center gap-2">
+                                  {selectedCategory === 'Kyorugui' ? (
+                                    <input 
+                                      type="number"
+                                      placeholder="Pts"
+                                      className="w-16 bg-black/40 border border-white/10 rounded-lg text-xs font-black text-center text-white p-1 outline-none focus:border-red-500/50"
+                                      value={athlete.points || ''}
+                                      onChange={(e) => handleUpdateScores(key, athlete.regId, 'points', parseInt(e.target.value))}
+                                    />
+                                  ) : (
+                                    <input 
+                                      type="number"
+                                      step="0.01"
+                                      placeholder="Nota"
+                                      className="w-16 bg-black/40 border border-white/10 rounded-lg text-xs font-black text-center text-white p-1 outline-none focus:border-red-500/50"
+                                      value={athlete.score || ''}
+                                      onChange={(e) => handleUpdateScores(key, athlete.regId, 'score', parseFloat(e.target.value))}
+                                    />
+                                  )}
+                                  
+                                  <select 
+                                    className={cn(
+                                      "bg-black/40 border border-white/10 rounded-lg text-[10px] font-black uppercase px-2 py-1 outline-none focus:border-red-500/50 transition-all",
+                                      (athlete.points === 0 && athlete.score === 0) ? "opacity-30 cursor-not-allowed" : "text-stone-300 border-amber-500/50"
+                                    )}
+                                    value={athlete.place || ''}
+                                    onChange={(e) => handleUpdateScores(key, athlete.regId, 'place', e.target.value === 'WO' ? 'WO' : (parseInt(e.target.value) || null))}
+                                    disabled={!(
+                                      // Habilitar se houver empate técnico
+                                      groupAthletes.some(other => 
+                                        other.id !== athlete.id && 
+                                        ((selectedCategory === 'Kyorugui' && athlete.points > 0 && athlete.points === other.points) ||
+                                         (selectedCategory !== 'Kyorugui' && athlete.score > 0 && athlete.score === other.score))
+                                      ) || 
+                                      athlete.place === 'WO' ||
+                                      !athlete.place
+                                    )}
+                                  >
+                                    <option value="">{groupAthletes.some(other => other.id !== athlete.id && (athlete.points > 0 && athlete.points === other.points)) ? 'Decisão...' : 'Pos...'}</option>
+                                    <option value="1">1º (Ouro)</option>
+                                    <option value="2">2º (Prata)</option>
+                                    <option value="3">3º (Bronze)</option>
+                                    <option value="WO">W.O.</option>
+                                  </select>
+                                </div>
+                                
+                                {athlete.assignedCategory && (
+                                  <Button 
+                                    variant="ghost" 
+                                    className="p-1 px-2 bg-red-600/10 hover:bg-red-600/30 text-red-500 rounded-lg text-[9px] font-bold uppercase tracking-widest gap-1"
+                                    onClick={() => handleResetMatch(athlete.regId)}
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    Remover da Chave
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                            {profile?.role !== 'admin' && athlete.place && (
+                              <div className={cn(
+                                "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter shadow-lg",
+                                athlete.place === 1 ? "bg-amber-500 text-white" :
+                                athlete.place === 2 ? "bg-slate-300 text-stone-900" :
+                                athlete.place === 3 ? "bg-amber-700 text-white" : "bg-stone-800 text-stone-400"
+                              )}>
+                                {athlete.place}º Lugar
+                              </div>
                             )}
                           </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <div className="text-right">
-                            <BeltBadge belt={athlete.belt} size="sm" />
-                            <p className="text-[9px] font-black text-stone-600 uppercase tracking-widest mt-1.5">{athlete.weight}kg</p>
-                          </div>
-                          {profile?.role === 'admin' && (
-                            <div className="flex flex-col items-end gap-2">
-                              <div className="flex items-center gap-2">
-                                {selectedCategory === 'Kyorugui' ? (
-                                  <input 
-                                    type="number"
-                                    placeholder="Pts"
-                                    className="w-16 bg-black/40 border border-white/10 rounded-lg text-xs font-black text-center text-white p-1 outline-none focus:border-red-500/50"
-                                    value={athlete.points || ''}
-                                    onChange={(e) => handleUpdateScores(key, athlete.regId, 'points', parseInt(e.target.value))}
-                                  />
-                                ) : (
-                                  <input 
-                                    type="number"
-                                    step="0.01"
-                                    placeholder="Nota"
-                                    className="w-16 bg-black/40 border border-white/10 rounded-lg text-xs font-black text-center text-white p-1 outline-none focus:border-red-500/50"
-                                    value={athlete.score || ''}
-                                    onChange={(e) => handleUpdateScores(key, athlete.regId, 'score', parseFloat(e.target.value))}
-                                  />
-                                )}
-                                
-                                <select 
-                                  className={cn(
-                                    "bg-black/40 border border-white/10 rounded-lg text-[10px] font-black uppercase px-2 py-1 outline-none focus:border-red-500/50 transition-all",
-                                    (athlete.points === 0 && athlete.score === 0) ? "opacity-30 cursor-not-allowed" : "text-stone-300 border-amber-500/50"
-                                  )}
-                                  value={athlete.place || ''}
-                                  onChange={(e) => handleUpdateScores(key, athlete.regId, 'place', e.target.value === 'WO' ? 'WO' : (parseInt(e.target.value) || null))}
-                                  disabled={!(
-                                    // Habilitar se houver empate técnico
-                                    groupAthletes.some(other => 
-                                      other.id !== athlete.id && 
-                                      ((selectedCategory === 'Kyorugui' && athlete.points > 0 && athlete.points === other.points) ||
-                                       (selectedCategory !== 'Kyorugui' && athlete.score > 0 && athlete.score === other.score))
-                                    ) || 
-                                    athlete.place === 'WO' ||
-                                    !athlete.place
-                                  )}
-                                >
-                                  <option value="">{groupAthletes.some(other => other.id !== athlete.id && (athlete.points > 0 && athlete.points === other.points)) ? 'Decisão...' : 'Pos...'}</option>
-                                  <option value="1">1º (Ouro)</option>
-                                  <option value="2">2º (Prata)</option>
-                                  <option value="3">3º (Bronze)</option>
-                                  <option value="WO">W.O.</option>
-                                </select>
-                              </div>
-                              
-                              {athlete.assignedCategory && (
-                                <Button 
-                                  variant="ghost" 
-                                  className="p-1 px-2 bg-red-600/10 hover:bg-red-600/30 text-red-500 rounded-lg text-[9px] font-bold uppercase tracking-widest gap-1"
-                                  onClick={() => handleResetMatch(athlete.regId)}
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                  Remover da Chave
-                                </Button>
-                              )}
-                            </div>
-                          )}
-                          {profile?.role !== 'admin' && athlete.place && (
-                            <div className={cn(
-                              "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter shadow-lg",
-                              athlete.place === 1 ? "bg-amber-500 text-white" :
-                              athlete.place === 2 ? "bg-slate-300 text-stone-900" :
-                              athlete.place === 3 ? "bg-amber-700 text-white" : "bg-stone-800 text-stone-400"
-                            )}>
-                              {athlete.place}º Lugar
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
 
                 {groupAthletes.length === 1 && (

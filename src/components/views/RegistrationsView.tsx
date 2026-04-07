@@ -13,6 +13,7 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
   const [formData, setFormData] = useState({
     athleteId: '',
     categories: [] as ('Kyorugui' | 'Poomsae' | 'Kyopa (3 tábuas)' | 'Kyopa (5 tábuas)')[],
+    isElite: false
   });
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
   const [uploadingAcademyId, setUploadingAcademyId] = useState<string | null>(null);
@@ -92,7 +93,7 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
       });
 
       setIsAdding(false);
-      setFormData({ athleteId: '', categories: [] });
+      setFormData({ athleteId: '', categories: [], isElite: false });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'registrations');
     } finally {
@@ -327,6 +328,47 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
                 </div>
               );
             })()}
+
+            {/* Opção Elite para Graduados */}
+            {(() => {
+              const selectedAthlete = athletes.find(a => a.id === formData.athleteId);
+              if (!selectedAthlete) return null;
+              const b = selectedAthlete.belt.toLowerCase();
+              const isGraduado = b.includes('azul escuro') || b.includes('vermelha') || b.includes('3º gub') || b.includes('2º gub') || b.includes('1º gub');
+              if (!isGraduado) return null;
+              
+              return (
+                <div className="space-y-4 pt-2">
+                  <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">Categoria Especial</label>
+                  <label className={cn(
+                    "flex items-center gap-4 p-5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden group",
+                    formData.isElite 
+                      ? "bg-amber-600/20 text-amber-400 border-amber-500/50 shadow-xl" 
+                      : "bg-white/5 border-white/5 text-stone-400 hover:border-white/10 hover:bg-white/[0.08]"
+                  )}>
+                    <input 
+                      type="checkbox" 
+                      className="hidden"
+                      checked={formData.isElite}
+                      onChange={() => setFormData(prev => ({ ...prev, isElite: !prev.isElite }))}
+                    />
+                    <div className={cn(
+                      "w-5 h-5 rounded-lg border flex items-center justify-center transition-colors",
+                      formData.isElite ? "bg-amber-500 text-stone-950 border-amber-500" : "border-white/10"
+                    )}>
+                      {formData.isElite && <CheckCircle2 className="w-3 h-3" />}
+                    </div>
+                    <div>
+                      <span className="font-black uppercase tracking-tight text-sm block">Participar como Elite (Lutar com Preta)</span>
+                      <span className="text-[10px] font-bold text-stone-500 uppercase tracking-widest">Aplica-se apenas para a modalidade Kyorugui</span>
+                    </div>
+                    {formData.isElite && (
+                      <div className="absolute right-0 top-0 h-full w-1.5 bg-amber-500/50" />
+                    )}
+                  </label>
+                </div>
+              );
+            })()}
             
             <div className="space-y-4">
               <label className="text-[10px] font-black text-stone-500 uppercase tracking-widest ml-1">Disciplinas</label>
@@ -416,7 +458,7 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
               <Button type="submit" className="flex-1 py-4 text-sm shadow-red-600/20" disabled={isSubmitting}>{isSubmitting ? 'Registrando...' : 'Finalizar Inscrição'}</Button>
               <Button type="button" variant="secondary" className="flex-1 py-4 text-sm" onClick={() => {
                 setIsAdding(false);
-                setFormData({ athleteId: '', categories: [] });
+                setFormData({ athleteId: '', categories: [], isElite: false });
               }}>Cancelar</Button>
             </div>
           </form>

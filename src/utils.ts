@@ -293,13 +293,16 @@ export const generatePix = (amount: number, description: string = "Inscrição F
  * Retorna as formas (Poomsae) que o atleta deve executar com base na faixa.
  * Fonte: Documento oficial Festival Colombo 2026, seção 5.3.
  */
-export function getPoomsaeByBelt(belt: string): string {
+export function getPoomsaeByBelt(belt: string, isElite?: boolean): string {
+  if (isElite) return 'Koryo ou superior (Categoria Elite)';
   const b = belt.toLowerCase();
   if (b.includes('branca') || b.includes('white')) return 'Saju Jireugi ou AP Tchagui';
+  if (b.includes('cinza') || b.includes('grey')) return 'Taegeuk 1';
   if (b.includes('amarela') || b.includes('yellow')) return 'Taegeuk 1, 2 ou 3';
+  if (b.includes('laranja') || b.includes('orange')) return 'Taegeuk 1, 2 ou 3';
   if (b.includes('verde') || b.includes('green')) return 'Taegeuk 1, 2 ou 3';
-  if (b.includes('azul clara') || b.includes('light blue')) return 'Taegeuk 4, 5 ou 6';
-  if (b.includes('azul') || b.includes('blue')) return 'Taegeuk 4, 5 ou 6';
+  if (b.includes('azul cl') || b.includes('light blue')) return 'Taegeuk 4, 5 ou 6';
+  if (b.includes('azul es') || b.includes('blue')) return 'Taegeuk 4, 5 ou 6';
   if (b.includes('roxa') || b.includes('purple')) return 'Taegeuk 4, 5 ou 6';
   if (b.includes('vermelha') || b.includes('red') || b.includes('ponta preta') || b.includes('rec')) return 'Taegeuk 6, 7 ou 8';
   if (b.includes('dan') || b.includes('preta') || b.includes('black')) return 'Koryo ou superior';
@@ -310,12 +313,15 @@ export function getPoomsaeByBelt(belt: string): string {
  * Retorna as regras de contato permitidas para a faixa na Kyorugui.
  * Fonte: Documento oficial Festival Colombo 2026, seção 5.2.
  */
-export function getFightRules(belt: string): { label: string; color: string; detail: string } {
+export function getFightRules(belt: string, isElite?: boolean): { label: string; color: string; detail: string } {
+  if (isElite) {
+    return { label: 'Tronco + Cabeça', color: 'text-red-400', detail: 'Elite: Aplicam-se as regras de faixa preta (contato total)' };
+  }
   const b = belt.toLowerCase();
   if (b.includes('branca') || b.includes('white')) {
     return { label: 'Sem Contato', color: 'text-stone-400', detail: 'Regras especiais para faixa branca' };
   }
-  if (b.includes('amarela') || b.includes('yellow') || b.includes('verde') || b.includes('green') || b.includes('azul clara') || b.includes('light blue')) {
+  if (b.includes('cinza') || b.includes('grey') || b.includes('amarela') || b.includes('yellow') || b.includes('laranja') || b.includes('orange') || b.includes('verde') || b.includes('green') || b.includes('azul cl') || b.includes('light blue')) {
     return { label: 'Tronco', color: 'text-blue-400', detail: 'Somente golpes no tronco' };
   }
   if (b.includes('azul') || b.includes('roxa') || b.includes('vermelha') || b.includes('red') || b.includes('ponta preta') || b.includes('rec')) {
