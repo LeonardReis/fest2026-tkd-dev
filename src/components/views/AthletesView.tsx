@@ -10,10 +10,19 @@ import { User } from 'firebase/auth';
 import { Button, Card, Input, Select, cn } from '../ui';
 import { BeltBadge } from '../BeltBadge';
 
-export function AthletesView({ profile, user, athletes, academies, registrations, key }: { profile: UserProfile | null; user: User | null; athletes: Athlete[]; academies: Academy[]; registrations: Registration[]; key?: string }) {
+export function AthletesView({ profile, user, athletes, academies, registrations }: { profile: UserProfile | null; user: User | null; athletes: Athlete[]; academies: Academy[]; registrations: Registration[] }) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sincroniza academyId inicial para inscrições se necessário (embora handleSubmit já force)
+  React.useEffect(() => {
+    if (isAdding && profile?.role === 'master' && profile.academyId) {
+       // Não precisamos setar no formData aqui pois RegistrationsView 
+       // usa o athleteId para determinar a academia, BUT
+       // handleSubmit agora força profile.academyId para masters.
+    }
+  }, [isAdding, profile]);
   const [isUploading, setIsUploading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -24,6 +33,13 @@ export function AthletesView({ profile, user, athletes, academies, registrations
     academyId: '',
     avatar: ''
   });
+
+  // Sincroniza academyId inicial quando o perfil carrega
+  React.useEffect(() => {
+    if (profile?.academyId && !formData.academyId && !isAdding) {
+      setFormData(prev => ({ ...prev, academyId: profile.academyId }));
+    }
+  }, [profile, isAdding]);
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -68,16 +84,20 @@ export function AthletesView({ profile, user, athletes, academies, registrations
                 }
             }
         }
-        await updateDoc(doc(db, 'athletes', editingId), formData);
+        await updateDoc(doc(db, 'athletes', editingId), {
+            ...formData,
+            academyId: profile.role === 'admin' ? formData.academyId : profile.academyId
+        });
       } else {
         await addDoc(collection(db, 'athletes'), {
           ...formData,
+          academyId: profile.role === 'admin' ? formData.academyId : profile.academyId,
           createdBy: profile.uid
         });
       }
       setIsAdding(false);
       setEditingId(null);
-      setFormData({ name: '', birthYear: '', gender: 'M', belt: '', weight: 0, academyId: '', avatar: '' });
+      setFormData({ name: '', birthYear: '', gender: 'M', belt: '', weight: 0, academyId: profile.academyId || '', avatar: '' });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'athletes');
     } finally {
@@ -197,13 +217,22 @@ export function AthletesView({ profile, user, athletes, academies, registrations
               />
               <Input label="Peso Atual (kg)" type="number" step="0.1" value={formData.weight} onChange={e => setFormData({ ...formData, weight: Number(e.target.value) })} required />
               <div className="md:col-span-2">
-                <Select 
-                  label="Academia / Equipe" 
-                  options={academies.map(a => ({ value: a.id, label: a.name }))} 
-                  value={formData.academyId}
-                  onChange={e => setFormData({ ...formData, academyId: e.target.value })}
-                  required
-                />
+                {profile?.role === 'admin' ? (
+                  <Select 
+                    label="Academia / Equipe" 
+                    options={academies.map(a => ({ value: a.id, label: a.name }))} 
+                    value={formData.academyId}
+                    onChange={e => setFormData({ ...formData, academyId: e.target.value })}
+                    required
+                  />
+                ) : (
+                  <Input 
+                    label="Academia Vinculada" 
+                    value={academies.find(a => a.id === profile?.academyId)?.name || 'Carregando...'} 
+                    readOnly 
+                    className="opacity-70 grayscale"
+                  />
+                )}
               </div>
             </div>
 
@@ -232,7 +261,9 @@ export function AthletesView({ profile, user, athletes, academies, registrations
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {athletes.map(athlete => {
+                {athletes
+                  .filter(a => profile?.role === 'admin' || a.academyId === profile?.academyId)
+                  .map(athlete => {
                   const ageCat = getAgeCategory(athlete.birthYear, athlete.belt);
                   const weightCat = getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt);
                   return (

@@ -8,7 +8,7 @@ import { handleFirestoreError, calculatePrice, generatePix, formatWhatsAppNumber
 import { Registration, Athlete, Academy, UserProfile, OperationType } from '../../types';
 import { Button, Card, Select, cn } from '../ui';
 
-export function RegistrationsView({ profile, registrations, athletes, academies, receipts, settings, onViewReceipt, key }: { profile: UserProfile | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; settings: any; onViewReceipt: (data: string) => void; key?: string }) {
+export function RegistrationsView({ profile, registrations, athletes, academies, receipts, settings, onViewReceipt }: { profile: UserProfile | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; settings: any; onViewReceipt: (data: string) => void }) {
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({
     athleteId: '',
@@ -86,7 +86,7 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
     try {
       await addDoc(collection(db, 'registrations'), {
         ...formData,
-        academyId: athlete.academyId,
+        academyId: profile.role === 'admin' ? athlete.academyId : profile.academyId,
         status: 'Pendente',
         paymentStatus: 'Pendente',
         createdAt: new Date().toISOString()
@@ -113,11 +113,13 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
 
   const myAcademyRegs = profile?.role === 'admin'
     ? registrations
-    : registrations.filter(r => academies.some(a => a.id === r.academyId));
+    : registrations.filter(r => r.academyId === profile?.academyId);
   
-  const academiesWithPendingOrAnalysis = academies.filter(a => 
-    registrations.some(r => r.academyId === a.id && (r.paymentStatus === 'Pendente' || r.paymentStatus === 'Em Análise'))
-  );
+  const academiesWithPendingOrAnalysis = academies
+    .filter(a => profile?.role === 'admin' || a.id === profile?.academyId)
+    .filter(a => 
+      registrations.some(r => r.academyId === a.id && (r.paymentStatus === 'Pendente' || r.paymentStatus === 'Em Análise'))
+    );
 
   const handlePaymentStatus = async (regId: string, currentStatus: string) => {
     try {
@@ -304,7 +306,9 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
             <h3 className="text-xl font-black text-white italic uppercase tracking-tighter border-b border-white/5 pb-4">Nova Inscrição</h3>
             <Select 
               label="Competidor" 
-              options={athletes.map(a => ({ value: a.id, label: a.name }))} 
+              options={athletes
+                .filter(a => profile?.role === 'admin' || a.academyId === profile?.academyId)
+                .map(a => ({ value: a.id, label: a.name }))} 
               value={formData.athleteId}
               onChange={e => setFormData({ ...formData, athleteId: e.target.value })}
               required

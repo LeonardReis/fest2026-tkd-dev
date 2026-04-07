@@ -27,12 +27,13 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-         (request.auth.token.email in ["leo@laravitoria.com", "tauyllin.edfisica@hotmail.com", "tauyllin.tkd@gmail.com", "carloswalesko@gmail.com"] && request.auth.token.email_verified == true));
+        (request.auth.token.email in ["leo@laravitoria.com", "tauyllin.edfisica@hotmail.com", "tauyllin.tkd@gmail.com", "carloswalesko@gmail.com"] ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
     }
 
     function isMaster() {
-      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'master';
+      return isAuthenticated() && 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'master');
     }
 
     function isOwner(userId) {
@@ -45,7 +46,7 @@ service cloud.firestore {
 
     // Validators
     function isValidUser(data) {
-      return data.email is string && data.role in ['admin', 'master'] && hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'photoURL']);
+      return data.email is string && (data.role == 'admin' || data.role == 'master');
     }
 
     function isValidAcademy(data) {
@@ -53,35 +54,31 @@ service cloud.firestore {
              data.coach is string && data.coach.size() > 0 &&
              data.master is string && data.master.size() > 0 &&
              data.createdBy == request.auth.uid &&
-             hasOnlyAllowedFields(['name', 'master', 'contact', 'logo', 'createdBy']);
+             hasOnlyAllowedFields(['name', 'coach', 'master', 'contact', 'logo', 'createdBy']);
     }
 
     function isValidAthlete(data) {
       return data.name is string && data.name.size() > 0 &&
-             data.birthDate is string &&
+             data.birthYear is number &&
              data.gender in ['M', 'F'] &&
              data.belt is string &&
              data.weight is number &&
              data.academyId is string &&
              data.createdBy == request.auth.uid &&
-             hasOnlyAllowedFields(['name', 'birthDate', 'gender', 'belt', 'weight', 'academyId', 'createdBy']);
+             hasOnlyAllowedFields(['name', 'birthYear', 'gender', 'belt', 'weight', 'academyId', 'createdBy', 'avatar']);
     }
 
     function isValidRegistration(data) {
       return data.athleteId is string &&
              data.academyId is string &&
-             data.categories is list &&
-             data.categories.size() > 0 &&
-             data.status in ['Pendente', 'Confirmado', 'Cancelado'] &&
-             data.paymentStatus in ['Pendente', 'Pago', 'Em Análise'] &&
-             hasOnlyAllowedFields(['athleteId', 'academyId', 'categories', 'status', 'paymentStatus', 'createdAt']);
+             data.categories is list;
     }
 
     // Rules
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'master' || isAdmin());
-      allow update: if (isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin();
+      allow create: if isAuthenticated() && isOwner(userId);
+      allow update: if (isOwner(userId) && (resource.data.role == null || request.resource.data.role == resource.data.role)) || isAdmin();
     }
 
     match /academies/{academyId} {
@@ -93,16 +90,17 @@ service cloud.firestore {
 
     match /athletes/{athleteId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidAthlete(request.resource.data);
+      allow create: if isAuthenticated() && isValidAthlete(request.resource.data) && (isAdmin() || (isMaster() && request.resource.data.academyId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.academyId));
       allow update: if isAdmin() || (isAuthenticated() && resource.data.createdBy == request.auth.uid);
       allow delete: if isAdmin();
     }
 
     match /registrations/{regId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidRegistration(request.resource.data);
-      allow update: if isAdmin() || (isAuthenticated() && get(/databases/$(database)/documents/academies/$(resource.data.academyId)).data.createdBy == request.auth.uid);
-      allow delete: if isAdmin();
+      allow create: if isAuthenticated() && isValidRegistration(request.resource.data) && 
+                      (isAdmin() || isMaster());
+      allow update: if isAdmin() || (isAuthenticated() && (resource.data.academyId != null && get(/databases/$(database)/documents/academies/$(resource.data.academyId)).data.createdBy == request.auth.uid));
+      allow delete: if isAdmin() || (isAuthenticated() && (resource.data.academyId != null && get(/databases/$(database)/documents/academies/$(resource.data.academyId)).data.createdBy == request.auth.uid));
     }
 
     match /receipts/{receiptId} {
@@ -120,6 +118,17 @@ service cloud.firestore {
     match /mail/{mailId} {
       allow create: if isAuthenticated();
       allow read: if false;
+      allow update, delete: if false;
+    }
+
+    match /matches/{matchId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /audit_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
       allow update, delete: if false;
     }
   }

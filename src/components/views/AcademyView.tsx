@@ -10,7 +10,7 @@ import { Button, Card, Input, Select } from '../ui';
 
 const UNIAO_LOPES_LOGO = "/logo-colombo.png";
 
-export function AcademyView({ profile, academies, key }: { profile: UserProfile | null; academies: Academy[]; key?: string }) {
+export function AcademyView({ profile, academies }: { profile: UserProfile | null; academies: Academy[] }) {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ name: '', coach: '', master: '', contact: '', logo: '' });
@@ -28,10 +28,17 @@ export function AcademyView({ profile, academies, key }: { profile: UserProfile 
       if (editingId) {
         await updateDoc(doc(db, 'academies', editingId), formData);
       } else {
-        await addDoc(collection(db, 'academies'), {
+        const docRef = await addDoc(collection(db, 'academies'), {
           ...formData,
           createdBy: profile.uid
         });
+        
+        // Vínculo automático para Master
+        if (profile.role === 'master' && !profile.academyId) {
+          await updateDoc(doc(db, 'users', profile.uid), {
+            academyId: docRef.id
+          });
+        }
       }
       setIsAdding(false);
       setEditingId(null);
@@ -89,7 +96,7 @@ export function AcademyView({ profile, academies, key }: { profile: UserProfile 
           <h2 className="text-2xl font-black text-white italic uppercase tracking-tighter">Minha Academia</h2>
           <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Gerencie os dados da sua equipe</p>
         </div>
-        {!isAdding && (
+        {!isAdding && (profile?.role === 'admin' || (profile?.role === 'master' && academies.length === 0)) && (
           <Button onClick={() => setIsAdding(true)} variant="primary" className="flex items-center gap-2">
             <Plus className="w-5 h-5" /> 
             <span>Nova Academia</span>
@@ -207,7 +214,9 @@ export function AcademyView({ profile, academies, key }: { profile: UserProfile 
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {academies.map(academy => (
+          {academies
+            .filter(a => profile?.role === 'admin' || a.id === profile?.academyId)
+            .map(academy => (
             <Card key={academy.id} className="p-8 group hover:border-red-600/30 transition-all duration-500 relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-red-600/5 rounded-full blur-3xl group-hover:bg-red-600/10 transition-colors" />
               <div className="relative z-10">

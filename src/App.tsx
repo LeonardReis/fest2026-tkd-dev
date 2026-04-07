@@ -114,38 +114,42 @@ export default function App() {
       setUser(firebaseUser);
       if (firebaseUser) {
         try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          // Admin check by email whitelist
           const adminEmails = ['leo@laravitoria.com', 'tauyllin.edfisica@hotmail.com', 'tauyllin.tkd@gmail.com', 'carloswalesko@gmail.com'];
           const isSystemAdmin = adminEmails.includes(firebaseUser.email || '');
 
-          if (userDoc.exists()) {
-            const userData = userDoc.data() as UserProfile;
-            if (isSystemAdmin && userData.role !== 'admin') {
-              // Upgrade existing user to admin if they are in the white-list
-              await updateDoc(doc(db, 'users', firebaseUser.uid), { role: 'admin' });
-              setProfile({ ...userData, uid: firebaseUser.uid, role: 'admin' });
+          // Profile Listener (v2: onSnapshot with auto-upgrade/auto-link)
+          const profileUnsubscribe = onSnapshot(doc(db, 'users', firebaseUser.uid), async (snap) => {
+            if (snap.exists()) {
+              const userData = snap.data() as UserProfile;
+              // Upgrade existing user if they are in the admin whitelist
+              if (isSystemAdmin && userData.role !== 'admin') {
+                await updateDoc(doc(db, 'users', firebaseUser.uid), { role: 'admin' });
+                setProfile({ ...userData, uid: firebaseUser.uid, role: 'admin' });
+              } else {
+                setProfile({ uid: firebaseUser.uid, ...userData });
+              }
             } else {
-              setProfile({ uid: firebaseUser.uid, ...userData } as UserProfile);
+              // Create new profile for first-time use
+              const newProfile: UserProfile = {
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || '',
+                role: isSystemAdmin ? 'admin' : 'master',
+                displayName: firebaseUser.displayName || '',
+                photoURL: firebaseUser.photoURL || ''
+              };
+              await setDoc(doc(db, 'users', firebaseUser.uid), newProfile);
+              setProfile(newProfile);
             }
-          } else {
-            // New user defaults to master unless in the admin list
-            const newProfile: UserProfile = {
-              uid: firebaseUser.uid,
-              email: firebaseUser.email || '',
-              role: isSystemAdmin ? 'admin' : 'master',
-              displayName: firebaseUser.displayName || '',
-              photoURL: firebaseUser.photoURL || ''
-            };
-            await setDoc(doc(db, 'users', firebaseUser.uid), newProfile);
-            setProfile(newProfile);
-          }
+            setLoading(false);
+          }, (err) => {
+            console.error("Profile onSnapshot error:", err);
+            setLoading(false);
+          });
+          
+          return () => profileUnsubscribe();
         } catch (err) {
-          try {
-            handleFirestoreError(err, OperationType.GET, 'users');
-          } catch (e) {
-            setError(e as Error);
-          }
-        } finally {
+          handleFirestoreError(err, OperationType.GET, 'users');
           setLoading(false);
         }
       } else {
@@ -155,6 +159,14 @@ export default function App() {
     });
     return unsubscribe;
   }, []);
+
+  // Redirecionamento de segurança para Master sem Academia
+  useEffect(() => {
+    if (profile?.role === 'master' && !profile.academyId && view !== 'academy' && view !== 'profile') {
+      console.log("Master sem academia detectado. Redirecionando para config.");
+      setView('academy');
+    }
+  }, [profile, view]);
 
   // Data Listeners — CORRIGIDO: listeners separados por coleção para evitar re-subscrição em cascata
   // O listener de registrations/receipts usa uma ref para capturar academies sem ser dependência
@@ -170,14 +182,21 @@ export default function App() {
       ? collection(db, 'academies')
       : query(collection(db, 'academies'), where('createdBy', '==', profile.uid));
     listeners.push(onSnapshot(qAcademies, (snap) => {
-      setAcademies(snap.docs.map(d => ({ id: d.id, ...d.data() } as Academy)));
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Academy));
+      setAcademies(data);
+      
+      // Auto-vínculo para Master: se já tem academia criada mas não está no doc 'users'
+      if (profile.role === 'master' && !profile.academyId && data.length > 0) {
+        console.log("Detectado academia órfã. Vinculando automaticamente ao perfil.");
+        updateDoc(doc(db, 'users', profile.uid), { academyId: data[0].id });
+      }
     }, (err) => {
       try { handleFirestoreError(err, OperationType.LIST, 'academies'); } catch (e) { setError(e as Error); }
     }));
 
     const qAthletes = profile.role === 'admin'
       ? collection(db, 'athletes')
-      : query(collection(db, 'athletes'), where('createdBy', '==', profile.uid));
+      : query(collection(db, 'athletes'), where('academyId', '==', profile.academyId || 'none'));
     listeners.push(onSnapshot(qAthletes, (snap) => {
       setAthletes(snap.docs.map(d => ({ id: d.id, ...d.data() } as Athlete)));
     }, (err) => {
@@ -193,15 +212,16 @@ export default function App() {
     return () => listeners.forEach(l => l());
   }, [profile]);
 
-  // Registrations + Receipts: para usuários não-admin dependem da lista de acadmias (via ref)
-  // Listener recriado apenas quando profile muda — não quando academies.length muda
+  // Registrations + Receipts: para usuários não-admin dependem da lista de acadmias
+  // Listener recriado sempre que a lista de IDs de academias muda
+  const academyIdsString = academies.map(a => a.id).sort().join(',');
   useEffect(() => {
     if (!profile) return;
     const listeners: (() => void)[] = [];
 
     const buildQuery = (colName: string) => {
       if (profile.role === 'admin') return collection(db, colName);
-      const ids = academiesRef.current.map(a => a.id);
+      const ids = academies.map(a => a.id);
       return query(collection(db, colName), where('academyId', 'in', ids.length > 0 ? ids : ['none']));
     };
 
@@ -218,7 +238,7 @@ export default function App() {
     }));
 
     return () => listeners.forEach(l => l());
-  }, [profile]);
+  }, [profile, academyIdsString]);
 
   const handleLogin = async () => {
     try {
@@ -335,7 +355,7 @@ export default function App() {
         {/* Right Side - Login Form (Glassmorphism dark mode) */}
         <div className="flex-1 flex flex-col items-center justify-center p-6 bg-stone-950 relative overflow-hidden">
           {/* Subtle noise/texture for the right side */}
-          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 brightness-100 contrast-150 mix-blend-overlay z-0"></div>
+          <div className="absolute inset-0 bg-[url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyBAMAAADsEZWCAAAAGFBMVEVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUU9pYm6AAAAB3RSTlMAAAAAAAAAlXisGAAAACJJREFUKM9jGAWjYBSMglEwCkbBKJgFomAUjIJRMApGwSgAAByXAE99v99cAAAAAElFTkSuQmCC')] opacity-5 mix-blend-overlay z-0"></div>
           
           <motion.div 
             initial={{ opacity: 0, x: 20 }}
@@ -389,7 +409,7 @@ export default function App() {
         <div className="fixed inset-0 z-0 pointer-events-none">
           <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-red-600/10 rounded-full blur-[120px]" />
           <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[120px]" />
-          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay" />
+          <div className="absolute inset-0 bg-[url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyBAMAAADsEZWCAAAAGFBMVEVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUU9pYm6AAAAB3RSTlMAAAAAAAAAlXisGAAAACJJREFUKM9jGAWjYBSMglEwCkbBKJgFomAUjIJRMApGwSgAAByXAE99v99cAAAAAElFTkSuQmCC')] opacity-5 mix-blend-overlay" />
         </div>
 
         {/* Sidebar */}

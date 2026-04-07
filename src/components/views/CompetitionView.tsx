@@ -1,16 +1,184 @@
-import React, { useState, useMemo } from 'react';
-import { motion } from 'motion/react';
-import { Trophy, AlertCircle, Trash2, Clock } from 'lucide-react';
-import { doc, updateDoc } from 'firebase/firestore';
+import React, { useState, useMemo, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Trophy, AlertCircle, Trash2, Clock, RotateCcw, Play, Loader2 } from 'lucide-react';
+import { doc, updateDoc, collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { handleFirestoreError, getAgeCategory, getWeightCategory, getPoomsaeByBelt, getFightRules, getFightRounds } from '../../utils';
 import { User } from 'firebase/auth';
-import { Registration, Athlete, Academy, UserProfile, OperationType } from '../../types';
+import { Registration, Athlete, Academy, UserProfile, OperationType, Match } from '../../types';
 import { Button, Card, cn } from '../ui';
 import { BeltBadge } from '../BeltBadge';
+import { BracketTree } from '../BracketTree';
+import { generateBracket } from '../../utils/bracketEngine';
+import { 
+  saveBracketMatches, 
+  advanceWinner, 
+  mergeCategory, 
+  resetBracket,
+  updateMatchScore
+} from '../../services/matchService';
+
+// DND Kit Imports
+import { 
+  DndContext, 
+  PointerSensor, 
+  useSensor, 
+  useSensors, 
+  DragOverlay,
+  closestCorners,
+  DragStartEvent,
+  DragEndEvent
+} from '@dnd-kit/core';
+import { AthleteDraggable } from '../AthleteDraggable';
+import { CategoryDroppable } from '../CategoryDroppable';
 
 export function CompetitionView({ registrations, athletes, academies, user, profile }: { registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; user: User | null; profile: UserProfile | null }) {
   const [selectedCategory, setSelectedCategory] = useState<string>('Kyorugui');
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [loadingGroup, setLoadingGroup] = useState<string | null>(null);
+  const [isProcessingMatch, setIsProcessingMatch] = useState<string | null>(null);
+
+  // Estados para o novo Modal de Fusão Múltipla
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
+  const [mergeSourceAthlete, setMergeSourceAthlete] = useState<any>(null);
+  const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
+
+  // DND Sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  );
+
+  const [activeAthlete, setActiveAthlete] = useState<any>(null);
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const data = event.active.data.current;
+    if (data?.type === 'BRACKET_ATHLETE') {
+      setActiveAthlete(data.competitor);
+    } else {
+      setActiveAthlete(data?.athlete);
+    }
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveAthlete(null);
+
+    if (!over) return;
+
+    // Lógica para Arraste no Chaveamento (Bracket)
+    if (active.id.toString().startsWith('bracket_source')) {
+      const sourceData = active.data.current;
+      const targetId = over.id.toString();
+
+      if (sourceData?.type === 'BRACKET_ATHLETE' && targetId.startsWith('bracket_target')) {
+        const [_, nextMatchId, position] = targetId.split(':');
+        const matchId = sourceData.matchId;
+        const winnerId = sourceData.competitor.athleteId;
+
+        // Validar se o target pertence à próxima luta correta
+        const match = matches.find(m => m.id === matchId);
+        if (match && match.nextMatchId === nextMatchId) {
+          // Remover confirm a menos que seja empate (seguindo regra anterior)
+          const scoreA = match.competitorA?.score || 0;
+          const scoreB = match.competitorB?.score || 0;
+
+          if (scoreA === scoreB) {
+            if (confirm(`Luta empatada. Confirmar ${sourceData.competitor.name} como vencedor por decisão técnica?`)) {
+              setIsProcessingMatch(matchId);
+              try {
+                await advanceWinner(matchId, winnerId);
+              } finally {
+                setIsProcessingMatch(null);
+              }
+            }
+          } else {
+            setIsProcessingMatch(matchId);
+            try {
+              await advanceWinner(matchId, winnerId);
+            } finally {
+              setIsProcessingMatch(null);
+            }
+          }
+        }
+      }
+      return;
+    }
+
+    // Lógica original para Arraste entre Categorias
+    const athlete = active.data.current?.athlete;
+    const originGroup = active.data.current?.originGroup;
+    const targetGroup = over.data.current?.groupKey;
+
+    if (!athlete || !targetGroup || originGroup === targetGroup) return;
+
+    if (!confirm(`Mover ${athlete.name} para a categoria "${targetGroup}"? Isso irá resetar as chaves envolvidas.`)) return;
+
+    try {
+      // Coletar regIds ANTES de mover para resetar os grupos corretamente
+      const baseOrigin = originGroup?.replace(/\s+-\s+G\d+$/, '');
+      const baseTarget = targetGroup.replace(/\s+-\s+G\d+$/, '');
+      
+      const getIds = (base: string) => {
+        const ids: string[] = [];
+        Object.entries(groupedAthletes).forEach(([k, athletes]) => {
+          if (k === base || k.startsWith(`${base} - G`)) {
+            athletes.forEach(a => ids.push(a.regId));
+          }
+        });
+        return ids;
+      };
+
+      const originIds = originGroup ? getIds(baseOrigin!) : [];
+      const targetIds = getIds(baseTarget);
+
+      await updateDoc(doc(db, 'registrations', athlete.regId), {
+        assignedCategory: targetGroup,
+        isMatched: false // Crucial: volta ao estado "não iniciado" para mostrar botão Play
+      });
+
+      if (originGroup) await resetBracket(originGroup, originIds);
+      await resetBracket(targetGroup, targetIds);
+
+    } catch (error) {
+      console.error('Erro ao mover atleta:', error);
+      alert('Falha ao mover atleta entre categorias.');
+    }
+  };
+
+  // Escutar todas as lutas (Matches) em tempo real
+  useEffect(() => {
+    const q = query(collection(db, 'matches'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const matchesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Match));
+      setMatches(matchesData);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleResetBracket = async (groupKey: string) => {
+    const baseGroupKey = groupKey.replace(/\s+-\s+G\d+$/, '');
+    const regIds: string[] = [];
+    
+    // Coletar IDs de todos os atletas que pertencem a esta categoria ou seus subgrupos
+    Object.entries(groupedAthletes).forEach(([k, athletes]) => {
+      if (k === baseGroupKey || k.startsWith(`${baseGroupKey} - G`)) {
+        athletes.forEach(a => {
+          if (!regIds.includes(a.regId)) regIds.push(a.regId);
+        });
+      }
+    });
+    
+    if (!window.confirm(`AVISO: Isso irá apagar TODAS as lutas e o pódio de toda a categoria "${baseGroupKey}". Deseja continuar?`)) return;
+    try {
+      await resetBracket(groupKey, regIds);
+    } catch (error) {
+      alert("Erro ao resetar chave");
+    }
+  };
   
   const groupedAthletes = useMemo(() => {
     const initialGroups: Record<string, any[]> = {};
@@ -73,8 +241,8 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
 
     const finalGroups: Record<string, any[]> = {};
     Object.entries(initialGroups).forEach(([key, groupAthletes]) => {
-      if (selectedCategory === 'Poomsae' && groupAthletes.length > 4) {
-        // Subdivide em grupos de 4
+      // Agrupamento em subgrupos de 4 só ocorre APÓS o play (quando isMatched for verdadeiro)
+      if (selectedCategory === 'Poomsae' && groupAthletes.length > 4 && groupAthletes.some(a => a.isMatched)) {
         for (let i = 0; i < groupAthletes.length; i += 4) {
           const chunk = groupAthletes.slice(i, i + 4);
           const groupNum = Math.floor(i / 4) + 1;
@@ -98,16 +266,14 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
     return finalGroups;
   }, [registrations, athletes, academies, selectedCategory, profile]);
 
-  const handleManualMatch = async (regId: string, targetCategory: string) => {
-    try {
-      await updateDoc(doc(db, 'registrations', regId), {
-        assignedCategory: targetCategory,
-        isMatched: true
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'registrations');
-    }
-  };
+  const soloAthletes = useMemo(() => {
+    return Object.entries(groupedAthletes)
+      .filter(([_, athletes]) => athletes.length === 1)
+      .map(([key, athletes]) => ({
+        key,
+        athlete: athletes[0]
+      }));
+  }, [groupedAthletes]);
 
   const handleResetMatch = async (regId: string) => {
     try {
@@ -122,52 +288,28 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
 
   const handleDrawGroup = async (groupKey: string, groupAthletes: any[]) => {
     try {
-      const confirmedRegs = registrations.filter(r => 
-        r.status === 'Confirmado' && 
-        groupAthletes.some(a => a.regId === r.id)
-      );
+      setLoadingGroup(groupKey);
       
-      const shuffled = [...confirmedRegs].sort(() => Math.random() - 0.5);
-      
-      for (let i = 0; i < shuffled.length; i++) {
-        const reg = shuffled[i];
-        let newResults = [...(reg.results || [])];
-        let resIdx = newResults.findIndex(r => r.groupKey === groupKey);
-        
-        const bracketPosition = i + 1;
-        
-        if (resIdx >= 0) {
-          newResults[resIdx] = { ...newResults[resIdx], bracketPosition };
-        } else {
-          newResults.push({ groupKey, place: null, bracketPosition });
-        }
-        
-        await updateDoc(doc(db, 'registrations', reg.id), { results: newResults });
+      if (selectedCategory === 'Kyorugui' && groupAthletes.length >= 2) {
+        const festivalId = 'fest2026';
+        const categoryId = groupKey.replace(/\s+/g, '_').toLowerCase();
+        const catAthletes = groupAthletes.map(a => ({ id: a.regId, name: a.name, academy: a.academy }));
+        const newMatches = generateBracket(festivalId, categoryId, groupKey, catAthletes);
+        if (!newMatches || newMatches.length === 0) throw new Error('Falha ao gerar chaves');
+        await saveBracketMatches(newMatches);
       }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'registrations');
-    }
-  };
 
-  const handleResetDraw = async (groupKey: string, groupAthletes: any[]) => {
-    try {
-      const confirmedRegs = registrations.filter(r => 
-        r.status === 'Confirmado' && 
-        groupAthletes.some(a => a.regId === r.id)
-      );
-      
-      for (const reg of confirmedRegs) {
-        let newResults = (reg.results || []).map(r => {
-          if (r.groupKey === groupKey) {
-            const { bracketPosition, ...rest } = r;
-            return rest;
-          }
-          return r;
+      // Ativa o modo de pontuação/lutas para todos os atletas e TRAVA a categoria
+      for (const athlete of groupAthletes) {
+        await updateDoc(doc(db, 'registrations', athlete.regId), { 
+          isMatched: true,
+          assignedCategory: groupKey 
         });
-        await updateDoc(doc(db, 'registrations', reg.id), { results: newResults });
       }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'registrations');
+    } catch (error: any) {
+      alert(`Erro ao iniciar categoria: ${error.message}`);
+    } finally {
+      setLoadingGroup(null);
     }
   };
 
@@ -175,74 +317,16 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
     try {
       const reg = registrations.find(r => r.id === athleteRegId);
       if (!reg) return;
-
       let newResults = [...(reg.results || [])];
       let resIdx = newResults.findIndex(r => r.groupKey === groupKey);
       
+      const updateData = { [field]: value };
+      
       if (resIdx >= 0) {
-        newResults[resIdx] = { ...newResults[resIdx], [field]: value };
+        newResults[resIdx] = { ...newResults[resIdx], ...updateData };
       } else {
-        newResults.push({ groupKey, place: null, [field]: value });
+        newResults.push({ groupKey, place: null, ...updateData });
       }
-
-      if ((field === 'score' || field === 'points') && profile?.role === 'admin') {
-        const currentGroup = groupedAthletes[groupKey];
-        if (currentGroup) {
-          const updatedAthletes = currentGroup.map(a => {
-            if (a.regId === athleteRegId) return { ...a, [field]: value };
-            return a;
-          });
-
-          // Ordenar decrescente
-          const sorted = [...updatedAthletes].sort((a, b) => {
-            const valA = (field === 'score' ? a.score : a.points) || 0;
-            const valB = (field === 'score' ? b.score : b.points) || 0;
-            return (Number(valB) || 0) - (Number(valA) || 0);
-          });
-
-          // Atribuir lugares automaticamente onde não houver empate
-          for (let i = 0; i < sorted.length; i++) {
-            const currentVal = (field === 'score' ? sorted[i].score : sorted[i].points) || 0;
-            const prevVal = i > 0 ? (field === 'score' ? sorted[i-1].score : sorted[i-1].points) || 0 : null;
-            const nextVal = i < sorted.length - 1 ? (field === 'score' ? sorted[i+1].score : sorted[i+1].points) || 0 : null;
-            
-            // Empate apenas se ambos tiverem pontuação > 0
-            const isTied = currentVal > 0 && (currentVal === prevVal || currentVal === nextVal);
-            
-            let place: any = null;
-            
-            // Só classifica se tiver pontuação > 0 OU se for atleta Único (W.O.)
-            if (currentVal > 0 || sorted.length === 1) {
-              if (i === 0) place = 1;
-              else if (i === 1) place = 2;
-              else if (i === 2) place = 3;
-            }
-            
-            // Se houver empate técnico, mantém a escolha manual do admin (se existir)
-            if (isTied) {
-              const currentAthleteInLoop = updatedAthletes.find(a => a.regId === sorted[i].regId);
-              place = currentAthleteInLoop?.place || null;
-            }
-
-            const targetReg = registrations.find(r => r.id === sorted[i].regId);
-            if (targetReg) {
-              let targetResults = [...(targetReg.results || [])];
-              let tIdx = targetResults.findIndex(r => r.groupKey === groupKey);
-              const athleteVal = (field === 'score' ? sorted[i].score : sorted[i].points);
-              
-              const resultData = { groupKey, place, [field]: athleteVal };
-              if (tIdx >= 0) {
-                targetResults[tIdx] = { ...targetResults[tIdx], ...resultData };
-              } else {
-                targetResults.push(resultData as any);
-              }
-              await updateDoc(doc(db, 'registrations', sorted[i].regId), { results: targetResults });
-            }
-          }
-          return;
-        }
-      }
-
       await updateDoc(doc(db, 'registrations', athleteRegId), { results: newResults });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'registrations');
@@ -250,304 +334,257 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
-        <div>
-          <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Chaves de Luta</h2>
-          <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Visualização por categorias confirmadas</p>
-        </div>
-        <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 overflow-x-auto">
-          {['Kyorugui', 'Poomsae', 'Kyopa'].map(cat => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={cn(
-                "px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
-                selectedCategory === cat 
-                  ? "bg-red-600 text-white shadow-lg" 
-                  : "text-stone-500 hover:text-white"
-              )}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-      </header>
-
-      {Object.keys(groupedAthletes).length === 0 ? (
-        <Card className="py-32 text-center border-white/5 bg-white/[0.02]">
-          <div className="w-20 h-20 bg-white/5 rounded-3xl flex items-center justify-center mx-auto mb-6 border border-white/5 group">
-            <Trophy className="w-10 h-10 text-stone-700 group-hover:text-red-600 group-hover:scale-110 transition-all" />
+    <DndContext 
+      sensors={sensors} 
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
+          <div>
+            <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Chaves de Luta</h2>
+            <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Gestão de atletas e categorias</p>
           </div>
-          <p className="text-[10px] text-stone-600 font-black uppercase tracking-[0.2em]">Nenhum atleta confirmado nesta categoria</p>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {Object.entries(groupedAthletes).map(([key, groupAthletes]) => {
-            // Extrair dados de rounds e regras para o grupo (baseado no 1º atleta)
-            const firstAthlete = groupAthletes[0];
-            const rounds = selectedCategory === 'Kyorugui' ? getFightRounds(firstAthlete?.ageCat || '') : null;
-            const poomsaeName = selectedCategory === 'Poomsae' && firstAthlete ? getPoomsaeByBelt(firstAthlete.belt, firstAthlete.isElite) : null;
+          <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 overflow-x-auto">
+            {['Kyorugui', 'Poomsae', 'Kyopa'].map(cat => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={cn(
+                  "px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                  selectedCategory === cat 
+                    ? "bg-red-600 text-white shadow-lg" 
+                    : "text-stone-500 hover:text-white"
+                )}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        </header>
 
-            return (
-              <Card key={key} className="p-0 border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent overflow-hidden">
-                {/* Header da chave */}
-                <div className="bg-white/5 px-6 py-4 border-b border-white/5 flex justify-between items-center">
-                  <div>
-                    <div className="flex justify-between items-start gap-3">
-                      <span className="text-[10px] font-black text-red-500 uppercase tracking-widest leading-tight">{key}</span>
-                      <span className="shrink-0 px-2 py-0.5 bg-red-600 rounded text-[9px] font-black text-white uppercase">{groupAthletes.length} Atletas</span>
-                    </div>
-                    {/* Tempo de luta (Kyorugui) */}
-                    {rounds && (
-                      <div className="flex items-center gap-2 mt-2">
-                        <Clock className="w-3 h-3 text-stone-500" />
-                        <span className="text-[9px] font-black text-stone-500 uppercase tracking-widest">
-                          {rounds.rounds} rounds × {rounds.duration} • intervalo {rounds.interval}
-                        </span>
+        {Object.keys(groupedAthletes).length === 0 ? (
+          <Card className="py-32 text-center border-white/5 bg-white/[0.02]">
+            <Trophy className="w-10 h-10 text-stone-700 mx-auto mb-6" />
+            <p className="text-[10px] text-stone-600 font-black uppercase tracking-[0.2em]">Nenhum atleta confirmado</p>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {Object.entries(groupedAthletes).map(([key, groupAthletes]) => {
+              const firstAthlete = groupAthletes[0];
+              const rounds = selectedCategory === 'Kyorugui' ? getFightRounds(firstAthlete?.ageCat || '') : null;
+              const poomsaeName = selectedCategory === 'Poomsae' && firstAthlete ? getPoomsaeByBelt(firstAthlete.belt, firstAthlete.isElite) : null;
+              const groupMatches = matches.filter(m => m.groupKey === key);
+
+              return (
+                <CategoryDroppable key={key} id={key} athleteCount={groupAthletes.length}>
+                  <Card className="p-0 border-white/5 bg-gradient-to-br from-white/[0.03] to-transparent overflow-hidden">
+                    <div className="px-6 py-4 flex items-center justify-between border-b border-white/5 bg-white/[0.02]">
+                      <div>
+                        <h3 className="font-black text-white uppercase tracking-tight text-sm">{key}</h3>
+                        <div className="flex items-center gap-3 mt-1">
+                          <span className="flex items-center gap-1.5 text-[8px] font-black text-stone-500 uppercase tracking-[0.2em]">
+                            <Clock className="w-3 h-3 text-red-500" />
+                            {rounds ? `${rounds.rounds}R × ${rounds.duration}` : 'Tempo Definido'}
+                          </span>
+                          {groupAthletes.length > 0 && (
+                            <span className="px-2 py-0.5 bg-red-600 rounded text-[8px] font-black text-white uppercase">
+                              {groupAthletes.length} Atletas
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    )}
-                    {/* Poomsae por faixa */}
-                    {poomsaeName && (
-                      <div className="mt-2 px-2 py-1 bg-blue-500/10 border border-blue-500/20 rounded-lg inline-flex">
-                        <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest">📋 {poomsaeName}</span>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {profile?.role === 'admin' && selectedCategory === 'Kyorugui' && groupAthletes.length > 1 && (
-                    <div className="flex gap-2">
-                      {!groupAthletes[0].bracketPosition ? (
-                        <Button 
-                          className="bg-amber-600 hover:bg-amber-700 text-[9px] h-7 px-3"
-                          onClick={() => handleDrawGroup(key, groupAthletes)}
-                        >
-                          Realizar Sorteio
-                        </Button>
-                      ) : (
-                        <Button 
-                          variant="ghost"
-                          className="text-stone-500 hover:text-white text-[9px] h-7 px-3"
-                          onClick={() => handleResetDraw(key, groupAthletes)}
-                        >
-                          Refazer Sorteio
-                        </Button>
+                      
+                      {profile?.role === 'admin' && (
+                        <div className="flex items-center gap-2">
+                          {!matches.some(m => m.groupKey === key) && !groupAthletes.some(a => a.isMatched) ? (
+                            <button 
+                              disabled={loadingGroup === key || groupAthletes.length < 2}
+                              onClick={() => handleDrawGroup(key, groupAthletes)}
+                              className={cn(
+                                "w-10 h-10 rounded-full flex items-center justify-center transition-all bg-amber-600/10 border border-amber-600/20 text-amber-500 hover:bg-amber-600 hover:text-white hover:scale-110 shadow-lg shadow-amber-900/20",
+                                (loadingGroup === key || groupAthletes.length < 2) && "opacity-50 cursor-not-allowed"
+                              )}
+                              title="Gerar Chave"
+                            >
+                              {loadingGroup === key ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5 fill-current" />}
+                            </button>
+                          ) : (
+                            <button 
+                              disabled={loadingGroup === key}
+                              onClick={() => handleResetBracket(key)}
+                              className="w-10 h-10 rounded-full flex items-center justify-center transition-all bg-transparent border border-red-500/20 text-red-500 hover:bg-red-600 hover:text-white"
+                              title="Resetar Chave"
+                            >
+                              {loadingGroup === key ? <Loader2 className="w-5 h-5 animate-spin" /> : <RotateCcw className="w-5 h-5" />}
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
 
-                <div className="p-6 space-y-4">
-                  {/* Visualização de Chaveamento para Kyorugui Sorteado */}
-                  {selectedCategory === 'Kyorugui' && groupAthletes[0]?.bracketPosition ? (
-                    <div className="space-y-6">
-                      {/* Agrupar em pares */}
-                      {(() => {
-                        const sorted = [...groupAthletes].sort((a, b) => (a.bracketPosition || 0) - (b.bracketPosition || 0));
-                        const matches = [];
-                        for (let i = 0; i < sorted.length; i += 2) {
-                          matches.push([sorted[i], sorted[i+1]]);
-                        }
-                        
-                        return matches.map((match, mIdx) => (
-                          <div key={mIdx} className="relative">
-                            <div className="absolute -left-3 top-0 bottom-0 w-px bg-white/10" />
-                            <p className="text-[8px] font-black text-stone-600 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
-                              {sorted.length > 2 ? `Confronto ${mIdx + 1}` : 'Grande Final'}
-                            </p>
-                            <div className="space-y-3">
-                              {match.map((matchAthlete, aIdx) => matchAthlete && (
-                                <div key={matchAthlete.id || `bye-${aIdx}`} className="flex justify-between items-center p-3 bg-white/[0.02] border border-white/5 rounded-xl group/match">
-                                  <div className="flex items-center gap-4">
-                                    <div className={cn(
-                                      "w-6 h-6 rounded flex items-center justify-center text-[10px] font-black text-white",
-                                      aIdx === 0 ? "bg-blue-600" : "bg-red-600"
-                                    )}>
-                                      {aIdx === 0 ? 'A' : 'B'}
-                                    </div>
-                                    <div>
-                                      <p className="font-black text-white uppercase tracking-tight text-xs">{matchAthlete.name}</p>
-                                      <p className="text-[8px] text-stone-500 font-bold uppercase tracking-widest mt-0.5">{matchAthlete.academy}</p>
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-3">
-                                    {profile?.role === 'admin' && (
-                                      <input 
-                                        type="number"
-                                        placeholder="Pts"
-                                        className="w-12 bg-black/40 border border-white/10 rounded-lg text-[10px] font-black text-center text-white p-1 outline-none focus:border-red-500/50"
-                                        value={matchAthlete.points || ''}
-                                        onChange={(e) => handleUpdateScores(key, matchAthlete.regId, 'points', parseInt(e.target.value))}
-                                      />
-                                    )}
-                                    <select 
-                                      className={cn(
-                                        "bg-black/40 border border-white/10 rounded-lg text-[10px] font-black uppercase px-2 py-1 outline-none",
-                                        matchAthlete.place ? "text-amber-500 border-amber-500/50" : "text-stone-500"
-                                      )}
-                                      value={matchAthlete.place || ''}
-                                      onChange={(e) => handleUpdateScores(key, matchAthlete.regId, 'place', parseInt(e.target.value) || null)}
-                                      disabled={profile?.role !== 'admin'}
-                                    >
-                                      <option value="">Pos...</option>
-                                      <option value="1">1º</option>
-                                      <option value="2">2º</option>
-                                      <option value="3">3º</option>
-                                    </select>
-                                  </div>
-                                </div>
-                              ))}
-                              {!match[1] && (
-                                <div className="p-3 border border-dashed border-white/5 rounded-xl text-center">
-                                  <p className="text-[8px] font-black text-stone-600 uppercase tracking-widest">Avança por Bye (Sorteio)</p>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ));
-                      })()}
-                    </div>
-                  ) : (
-                    groupAthletes.map((athlete, idx) => {
-                      const fightRules = selectedCategory === 'Kyorugui' ? getFightRules(athlete.belt, athlete.isElite) : null;
-
-                      return (
-                        <div key={athlete.id} className="flex justify-between items-center group/item">
-                          <div className="flex items-center gap-4">
-                            <div className="w-8 h-8 rounded-lg bg-stone-900 border border-white/5 flex items-center justify-center text-[10px] font-black text-white">
-                              {idx + 1}
-                            </div>
-                            <div>
-                              <p className="font-black text-white uppercase tracking-tight text-sm">{athlete.name}</p>
-                              <p className="text-[9px] text-stone-500 font-bold uppercase tracking-widest mt-0.5 italic">{athlete.academy}</p>
-                              {/* Regras de contato */}
-                              {fightRules && (
-                                <span className={cn("text-[8px] font-black uppercase tracking-widest", fightRules.color)}>
-                                  ⚡ {fightRules.label}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <div className="text-right">
-                              <BeltBadge belt={athlete.belt} size="sm" />
-                              <p className="text-[9px] font-black text-stone-600 uppercase tracking-widest mt-1.5">{athlete.weight}kg</p>
-                            </div>
-                            {profile?.role === 'admin' && (
-                              <div className="flex flex-col items-end gap-2">
-                                <div className="flex items-center gap-2">
-                                  {selectedCategory === 'Kyorugui' ? (
-                                    <input 
-                                      type="number"
-                                      placeholder="Pts"
-                                      className="w-16 bg-black/40 border border-white/10 rounded-lg text-xs font-black text-center text-white p-1 outline-none focus:border-red-500/50"
-                                      value={athlete.points || ''}
-                                      onChange={(e) => handleUpdateScores(key, athlete.regId, 'points', parseInt(e.target.value))}
-                                    />
-                                  ) : (
-                                    <input 
-                                      type="number"
-                                      step="0.01"
-                                      placeholder="Nota"
-                                      className="w-16 bg-black/40 border border-white/10 rounded-lg text-xs font-black text-center text-white p-1 outline-none focus:border-red-500/50"
-                                      value={athlete.score || ''}
-                                      onChange={(e) => handleUpdateScores(key, athlete.regId, 'score', parseFloat(e.target.value))}
-                                    />
-                                  )}
-                                  
-                                  <select 
-                                    className={cn(
-                                      "bg-black/40 border border-white/10 rounded-lg text-[10px] font-black uppercase px-2 py-1 outline-none focus:border-red-500/50 transition-all",
-                                      (athlete.points === 0 && athlete.score === 0) ? "opacity-30 cursor-not-allowed" : "text-stone-300 border-amber-500/50"
-                                    )}
-                                    value={athlete.place || ''}
-                                    onChange={(e) => handleUpdateScores(key, athlete.regId, 'place', e.target.value === 'WO' ? 'WO' : (parseInt(e.target.value) || null))}
-                                    disabled={!(
-                                      // Habilitar se houver empate técnico
-                                      groupAthletes.some(other => 
-                                        other.id !== athlete.id && 
-                                        ((selectedCategory === 'Kyorugui' && athlete.points > 0 && athlete.points === other.points) ||
-                                         (selectedCategory !== 'Kyorugui' && athlete.score > 0 && athlete.score === other.score))
-                                      ) || 
-                                      athlete.place === 'WO' ||
-                                      !athlete.place
-                                    )}
-                                  >
-                                    <option value="">{groupAthletes.some(other => other.id !== athlete.id && (athlete.points > 0 && athlete.points === other.points)) ? 'Decisão...' : 'Pos...'}</option>
-                                    <option value="1">1º (Ouro)</option>
-                                    <option value="2">2º (Prata)</option>
-                                    <option value="3">3º (Bronze)</option>
-                                    <option value="WO">W.O.</option>
-                                  </select>
-                                </div>
+                    <div className="p-6 space-y-4">
+                      {selectedCategory === 'Kyorugui' && matches.some(m => m.groupKey === key) ? (
+                        <div className="pt-4 overflow-x-auto scrollbar-hide">
+                          <BracketTree 
+                            matches={groupMatches}
+                            isAdmin={profile?.role === 'admin'}
+                            onSetWinner={(matchId, winnerId) => {
+                              const match = groupMatches.find(m => m.id === matchId);
+                              if (!match) return;
+                              
+                              const scoreA = match.competitorA?.score || 0;
+                              const scoreB = match.competitorB?.score || 0;
+                              
+                              if (scoreA === scoreB) {
+                                const winnerName = match.competitorA?.athleteId === winnerId 
+                                  ? match.competitorA.name 
+                                  : match.competitorB?.name;
                                 
-                                {athlete.assignedCategory && (
-                                  <Button 
-                                    variant="ghost" 
-                                    className="p-1 px-2 bg-red-600/10 hover:bg-red-600/30 text-red-500 rounded-lg text-[9px] font-bold uppercase tracking-widest gap-1"
-                                    onClick={() => handleResetMatch(athlete.regId)}
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                    Remover da Chave
-                                  </Button>
-                                )}
-                              </div>
-                            )}
-                            {profile?.role !== 'admin' && athlete.place && (
-                              <div className={cn(
-                                "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter shadow-lg",
-                                athlete.place === 1 ? "bg-amber-500 text-white" :
-                                athlete.place === 2 ? "bg-slate-300 text-stone-900" :
-                                athlete.place === 3 ? "bg-amber-700 text-white" : "bg-stone-800 text-stone-400"
-                              )}>
-                                {athlete.place}º Lugar
-                              </div>
-                            )}
-                          </div>
+                                if (confirm(`Luta empatada (${scoreA} x ${scoreB}). Confirmar ${winnerName} como vencedor por decisão técnica?`)) {
+                                  setIsProcessingMatch(matchId);
+                                  advanceWinner(matchId, winnerId).finally(() => setIsProcessingMatch(null));
+                                }
+                              } else {
+                                setIsProcessingMatch(matchId);
+                                advanceWinner(matchId, winnerId).finally(() => setIsProcessingMatch(null));
+                              }
+                            }}
+                            onUpdateScore={updateMatchScore}
+                          />
                         </div>
-                      );
-                    })
+                      ) : (
+                        <div className="space-y-1">
+                          {groupAthletes.map((athlete, idx) => (
+                            <AthleteDraggable 
+                              key={athlete.id}
+                              athlete={athlete}
+                              idx={idx}
+                              fightRules={selectedCategory === 'Kyorugui' ? getFightRules(athlete.belt, athlete.isElite) : null}
+                              isAdmin={profile?.role === 'admin'}
+                              selectedCategory={selectedCategory}
+                              onUpdateScores={handleUpdateScores}
+                              groupKey={key}
+                              groupAthletesCount={groupAthletes.length}
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                      {groupAthletes.length === 1 && (
+                        <div className="mt-4 p-4 bg-amber-600/10 border border-amber-600/20 rounded-2xl flex flex-col gap-3">
+                          <div className="flex items-center gap-3">
+                            <AlertCircle className="w-4 h-4 text-amber-500" />
+                            <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest leading-relaxed">
+                              Atleta único na chave (W.O.). Arraste para fundir com outra categoria!
+                            </p>
+                          </div>
+                          {profile?.role === 'admin' && (
+                            <Button 
+                              variant="ghost" 
+                              className="w-full justify-start text-[8px] h-8 bg-white/5 gap-2 uppercase font-black tracking-widest text-stone-400 group-hover:text-white"
+                              onClick={() => {
+                                setMergeSourceAthlete(groupAthletes[0]);
+                                setSelectedTargets([]);
+                                setIsMergeModalOpen(true);
+                              }}
+                            >
+                              <Trophy className="w-3 h-3" />
+                              Fusão de Categorias
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </Card>
+                </CategoryDroppable>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Modal de Fusão Múltipla */}
+        <AnimatePresence>
+          {isMergeModalOpen && mergeSourceAthlete && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                className="w-full max-w-2xl bg-stone-900 border border-white/10 rounded-[32px] overflow-hidden shadow-2xl"
+              >
+                <div className="p-8 border-b border-white/5">
+                  <h3 className="text-xl font-black text-white uppercase tracking-tight flex items-center gap-3">
+                    <Trophy className="w-6 h-6 text-amber-500" />
+                    Fusão de Categorias
+                  </h3>
+                  <p className="text-xs text-stone-500 font-bold uppercase tracking-widest mt-2 italic">
+                    Selecione outros atletas únicos para fundir com <span className="text-amber-500">{mergeSourceAthlete.name}</span>
+                  </p>
+                </div>
+
+                <div className="p-8 max-h-[400px] overflow-y-auto space-y-3 custom-scrollbar">
+                  {soloAthletes.length > 1 ? (
+                    soloAthletes
+                      .filter(s => s.athlete.regId !== mergeSourceAthlete.regId)
+                      .map(({ key, athlete }) => {
+                        const isSelected = selectedTargets.includes(athlete.regId);
+                        return (
+                          <div 
+                            key={athlete.regId}
+                            onClick={() => {
+                              setSelectedTargets(prev => 
+                                isSelected ? prev.filter(id => id !== athlete.regId) : [...prev, athlete.regId]
+                              );
+                            }}
+                            className={cn(
+                              "flex items-center justify-between p-4 rounded-2xl border transition-all cursor-pointer",
+                              isSelected ? "bg-amber-600/20 border-amber-500/50" : "bg-white/5 border-white/5 hover:bg-white/10"
+                            )}
+                          >
+                            <p className="text-sm font-black text-white uppercase">{athlete.name}</p>
+                            <BeltBadge belt={athlete.belt} size="sm" />
+                          </div>
+                        );
+                      })
+                  ) : (
+                    <div className="text-center py-10 opacity-50">Nenhum outro atleta único disponível</div>
                   )}
                 </div>
 
-                {groupAthletes.length === 1 && (
-                  <div className="m-6 mt-0 p-4 bg-amber-600/10 border border-amber-600/20 rounded-2xl flex flex-col gap-3">
-                    <div className="flex items-center gap-3">
-                      <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-                      <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest leading-relaxed">
-                        Atleta único na chave (W.O.).
-                      </p>
-                    </div>
-                    {profile?.role === 'admin' && selectedCategory !== 'Kyopa' && (
-                      <div className="flex flex-wrap gap-2 pt-2 border-t border-amber-600/20">
-                        <p className="w-full text-[8px] text-amber-600/60 font-black uppercase tracking-widest mb-1">Mover para:</p>
-                        {Object.keys(groupedAthletes).filter(k => k !== key).slice(0, 3).map(targetKey => (
-                          <button
-                            key={targetKey}
-                            onClick={() => handleManualMatch(groupAthletes[0].regId, targetKey)}
-                            className="px-3 py-1.5 bg-amber-600/20 hover:bg-amber-600/40 rounded-lg text-[8px] font-black text-amber-600 transition-all border border-amber-600/20 truncate max-w-[150px]"
-                          >
-                            {targetKey.split('|').pop()}
-                          </button>
-                        ))}
-                        <button
-                          onClick={() => {
-                            const target = prompt('Digite o nome da categoria exata ou chave:', key);
-                            if (target) handleManualMatch(groupAthletes[0].regId, target);
-                          }}
-                          className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-[8px] font-black text-stone-400 border border-white/5"
-                        >
-                          Outra...
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </Card>
-            );
-          })}
-        </div>
-      )}
-    </motion.div>
+                <div className="p-8 bg-black/40 border-t border-white/5 flex items-center justify-between gap-4">
+                  <Button variant="ghost" onClick={() => setIsMergeModalOpen(false)}>Cancelar</Button>
+                  <Button 
+                    variant="success" 
+                    disabled={selectedTargets.length === 0}
+                    onClick={async () => {
+                      const targetGroup = soloAthletes.find(s => s.athlete.regId === mergeSourceAthlete.regId)?.key;
+                      if (!targetGroup) return;
+                      for (const regId of selectedTargets) {
+                        const s = soloAthletes.find(x => x.athlete.regId === regId);
+                        if (s) await mergeCategory(regId, s.key, targetGroup, s.athlete.name);
+                      }
+                      setIsMergeModalOpen(false);
+                    }}
+                  >
+                    Confirmar Fusão
+                  </Button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        <DragOverlay dropAnimation={null}>
+          {activeAthlete ? (
+            <div className="bg-amber-600 border-2 border-white/20 p-4 rounded-2xl shadow-2xl backdrop-blur-xl w-[280px] rotate-3 cursor-grabbing">
+              <p className="font-black text-white uppercase text-xs">{activeAthlete.name}</p>
+              <p className="text-[10px] text-white/50 font-bold uppercase mt-1 italic">{activeAthlete.academy}</p>
+            </div>
+          ) : null}
+        </DragOverlay>
+      </motion.div>
+    </DndContext>
   );
 }

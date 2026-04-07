@@ -34,8 +34,8 @@ export function DashboardView({ stats, profile, settings, academies, registratio
       if (!st) return;
       reg.results?.forEach(res => {
         if (res.place === 1)      { st.points += 10; st.gold   += 1; }
-        else if (res.place === 2) { st.points += 5;  st.silver += 1; }
-        else if (res.place === 3) { st.points += 3;  st.bronze += 1; }
+        else if (res.place === 2) { st.points += 7;  st.silver += 1; }
+        else if (res.place === 3) { st.points += 5;  st.bronze += 1; }
       });
     });
     return Object.values(map).sort((a, b) => b.points - a.points);
@@ -260,7 +260,7 @@ function AcademyDashboard({ profile, academies, registrations, athletes, ranking
               <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Minha Posição no Ranking</p>
               <Medal className="w-4 h-4 text-amber-500" />
             </div>
-            {myRankData ? (
+            {myRankData && myRankData.points > 0 ? (
               <>
                 <div className="flex items-end gap-3 mb-3">
                   <span className={cn(
@@ -289,8 +289,11 @@ function AcademyDashboard({ profile, academies, registrations, athletes, ranking
               </>
             ) : (
               <div className="py-4">
-                <p className="text-[10px] text-stone-600 font-bold uppercase tracking-widest">Sem pontos ainda</p>
-                <p className="text-[9px] text-stone-700 font-bold uppercase tracking-widest mt-1">Aguarde os resultados das competições</p>
+                <p className="text-[10px] text-stone-600 font-black uppercase tracking-widest mb-1 italic">Aguardando Resultado</p>
+                <div className="flex items-center gap-2">
+                   <Clock className="w-3 h-3 text-stone-700" />
+                   <p className="text-[9px] text-stone-700 font-bold uppercase tracking-widest">Compita para pontuar no ranking</p>
+                </div>
               </div>
             )}
           </div>

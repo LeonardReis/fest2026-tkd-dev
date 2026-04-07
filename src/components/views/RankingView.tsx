@@ -26,14 +26,15 @@ export function RankingView({ academies, registrations }: { academies: Academy[]
       if (!stats) return;
 
       reg.results?.forEach(res => {
-        if (res.place === 1) {
+        const place = Number(res.place);
+        if (place === 1) {
           stats.points += 10;
           stats.gold += 1;
-        } else if (res.place === 2) {
-          stats.points += 5;
+        } else if (place === 2) {
+          stats.points += 7;
           stats.silver += 1;
-        } else if (res.place === 3) {
-          stats.points += 3;
+        } else if (place === 3) {
+          stats.points += 5;
           stats.bronze += 1;
         }
       });
@@ -57,7 +58,7 @@ export function RankingView({ academies, registrations }: { academies: Academy[]
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
       <header>
         <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Ranking Geral</h2>
-        <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Classificação Oficial de Academias (Ouro: 10, Prata: 5, Bronze: 3)</p>
+        <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Classificação Oficial de Academias (Ouro: 10, Prata: 7, Bronze: 5)</p>
       </header>
 
       {ranking.length === 0 ? (
@@ -79,7 +80,7 @@ export function RankingView({ academies, registrations }: { academies: Academy[]
                   className="w-full md:w-64 flex flex-col items-center order-2 md:order-1"
                 >
                   <div className="w-full bg-gradient-to-t from-slate-400/20 to-slate-300/10 border-t-4 border-slate-300 rounded-t-2xl p-6 text-center shadow-[0_-10px_40px_rgba(203,213,225,0.1)] relative overflow-hidden">
-                    <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay" />
+                    <div className="absolute inset-0 bg-[url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyBAMAAADsEZWCAAAAGFBMVEVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUU9pYm6AAAAB3RSTlMAAAAAAAAAlXisGAAAACJJREFUKM9jGAWjYBSMglEwCkbBKJgFomAUjIJRMApGwSgAAByXAE99v99cAAAAAElFTkSuQmCC')] opacity-5 mix-blend-overlay" />
                     <Medal className="w-12 h-12 text-slate-300 mx-auto mb-4 drop-shadow-lg" />
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">2º Lugar</p>
                     <p className="text-lg font-black text-white uppercase tracking-tight leading-tight truncate px-2">{top3[1].name}</p>
@@ -94,7 +95,7 @@ export function RankingView({ academies, registrations }: { academies: Academy[]
                 className="w-full md:w-72 flex flex-col items-center order-1 md:order-2 z-10 md:-mb-8"
               >
                 <div className="w-full bg-gradient-to-t from-amber-500/30 to-amber-400/20 border-t-4 border-amber-400 rounded-t-2xl p-8 text-center shadow-[0_-20px_60px_rgba(251,191,36,0.2)] relative overflow-hidden">
-                  <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay" />
+                  <div className="absolute inset-0 bg-[url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyBAMAAADsEZWCAAAAGFBMVEVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUU9pYm6AAAAB3RSTlMAAAAAAAAAlXisGAAAACJJREFUKM9jGAWjYBSMglEwCkbBKJgFomAUjIJRMApGwSgAAByXAE99v99cAAAAAElFTkSuQmCC')] opacity-5 mix-blend-overlay" />
                   <div className="absolute top-0 right-0 w-32 h-32 bg-white/20 blur-3xl rounded-full" />
                   <Trophy className="w-16 h-16 text-amber-400 mx-auto mb-4 drop-shadow-[0_0_15px_rgba(251,191,36,0.5)]" />
                   <p className="text-xs font-black text-amber-500 uppercase tracking-[0.2em] mb-2">Grande Campeã</p>
@@ -110,7 +111,7 @@ export function RankingView({ academies, registrations }: { academies: Academy[]
                   className="w-full md:w-64 flex flex-col items-center order-3 md:order-3 md:mt-16"
                 >
                   <div className="w-full bg-gradient-to-t from-amber-700/20 to-amber-600/10 border-t-4 border-amber-700 rounded-t-2xl p-6 text-center shadow-[0_-10px_40px_rgba(180,83,9,0.1)] relative overflow-hidden">
-                    <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay" />
+                    <div className="absolute inset-0 bg-[url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyBAMAAADsEZWCAAAAGFBMVEVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUU9pYm6AAAAB3RSTlMAAAAAAAAAlXisGAAAACJJREFUKM9jGAWjYBSMglEwCkbBKJgFomAUjIJRMApGwSgAAByXAE99v99cAAAAAElFTkSuQmCC')] opacity-5 mix-blend-overlay" />
                     <Award className="w-10 h-10 text-amber-700 mx-auto mb-4 drop-shadow-lg" />
                     <p className="text-[10px] font-black text-amber-700/80 uppercase tracking-widest mb-2">3º Lugar</p>
                     <p className="text-lg font-black text-white uppercase tracking-tight leading-tight truncate px-2">{top3[2].name}</p>
@@ -130,8 +131,8 @@ export function RankingView({ academies, registrations }: { academies: Academy[]
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Pos</th>
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Academia</th>
                     <th className="px-8 py-5 text-[10px] font-black text-amber-500 uppercase tracking-[0.2em] text-center">Ouro (10)</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em] text-center">Prata (5)</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-amber-700 uppercase tracking-[0.2em] text-center">Bronze (3)</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-slate-300 uppercase tracking-[0.2em] text-center">Prata (7)</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-amber-700 uppercase tracking-[0.2em] text-center">Bronze (5)</th>
                     <th className="px-8 py-5 text-[10px] font-black text-white uppercase tracking-[0.2em] text-right">Pontos</th>
                   </tr>
                 </thead>

@@ -81,3 +81,4 @@ export interface FirestoreErrorInfo {
     }[];
   }
 }
+export * from './types/matches';
