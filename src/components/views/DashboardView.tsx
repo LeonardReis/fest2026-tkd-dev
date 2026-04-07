@@ -8,6 +8,7 @@ import {
 import { UserProfile, Academy, Registration, Athlete } from '../../types';
 import { Card, cn } from '../ui';
 import { SCHEDULE, getAgeCategory, calculatePrice, calculateBoards } from '../../utils';
+import { BELT_OPTIONS } from '../../constants';
 
 /* ─── Props ──────────────────────────────────────────────────────────────────── */
 interface DashboardProps {
@@ -203,6 +204,9 @@ function AdminDashboard({ stats, academies, registrations, athletes, ranking }: 
         {/* Ranking Top 5 (admin) */}
         <RankingCard ranking={ranking} limit={5} />
       </div>
+
+      {/* Distribuição por Graduação */}
+      <BeltDistributionCard athletes={athletes || []} title="Distribuição Global por Graduação" />
     </div>
   );
 }
@@ -315,6 +319,9 @@ function AcademyDashboard({ profile, academies, registrations, athletes, ranking
           </div>
         </Card>
       </div>
+
+      {/* Distribuição por Graduação da Academia */}
+      <BeltDistributionCard athletes={myAthletes || []} title="Graduações na Academia" />
 
       {/* Atletas sem inscrição */}
       {uninscribed.length > 0 && (
@@ -548,5 +555,76 @@ function StepItem({ done, label, description }: { done: boolean; label: string; 
         <p className="text-xs text-stone-500 font-bold uppercase tracking-widest mt-1">{description}</p>
       </div>
     </div>
+  );
+}
+
+function BeltDistributionCard({ athletes, title }: { athletes: Athlete[]; title: string }) {
+  const distribution = useMemo(() => {
+    const map: Record<string, number> = {};
+    athletes.forEach(a => {
+      map[a.belt] = (map[a.belt] || 0) + 1;
+    });
+
+    // Ordena baseado na ordem oficial das BELT_OPTIONS
+    return BELT_OPTIONS
+      .filter(opt => map[opt.value])
+      .map(opt => ({
+        belt: opt.value,
+        count: map[opt.value],
+        percentage: Math.round((map[opt.value] / athletes.length) * 100)
+      }));
+  }, [athletes]);
+
+  const getBeltStyles = (belt: string) => {
+    if (belt.includes('Branca')) return 'bg-white text-black';
+    if (belt.includes('Cinza')) return 'bg-stone-500 text-white';
+    if (belt.includes('Amarela')) return 'bg-yellow-400 text-black';
+    if (belt.includes('Laranja')) return 'bg-orange-500 text-white';
+    if (belt.includes('Verde')) return 'bg-emerald-500 text-white';
+    if (belt.includes('Azul')) return 'bg-blue-600 text-white';
+    if (belt.includes('Vermelha') || belt.includes('Bordô')) return 'bg-red-600 text-white';
+    if (belt.includes('Preta')) return 'bg-stone-950 text-white border-white/20';
+    return 'bg-white/10 text-white';
+  };
+
+  if (athletes.length === 0) return null;
+
+  return (
+    <Card className="p-8 border-white/5 bg-white/[0.02]">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h3 className="text-xl font-black text-white italic uppercase tracking-tighter">{title}</h3>
+          <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">Distribuição por Graduação</p>
+        </div>
+        <TrendingUp className="w-5 h-5 text-stone-600" />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {distribution.map((item) => (
+          <div key={item.belt} className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className={cn(
+                "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border border-white/5 shadow-lg",
+                getBeltStyles(item.belt)
+              )}>
+                {item.belt}
+              </span>
+              <div className="text-right">
+                <span className="text-sm font-black text-white tracking-tighter">{item.count}</span>
+                <span className="text-[9px] text-stone-500 font-bold ml-1 uppercase">atl.</span>
+              </div>
+            </div>
+            <div className="relative h-1.5 bg-white/5 rounded-full overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${item.percentage}%` }}
+                className={cn("absolute inset-y-0 left-0 rounded-full", getBeltStyles(item.belt).split(' ')[0])}
+              />
+            </div>
+            <p className="text-[8px] text-stone-600 font-bold uppercase tracking-widest text-right">{item.percentage}% do total</p>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
