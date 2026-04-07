@@ -57,21 +57,31 @@ export async function resetBracket(groupKey: string, regIds?: string[]) {
 
     // 2. Resetar status de inscritos
     if (regIds && regIds.length > 0) {
-      // Se IDs foram passados, usar eles diretamente (MUITO MAIS CONFIÁVEL)
-      const regPromises = regIds.map(id => updateDoc(doc(db, 'registrations', id), {
-        isMatched: false,
-        results: []
-      }));
-      await Promise.all(regPromises);
-    } else {
-      // Fallback: tentar pela categoria se nenhum ID foi passado
-      const qRegs = query(collection(db, 'registrations'), where('assignedCategory', '==', baseGroupKey));
-      const regSnap = await getDocs(qRegs);
-      const regPromises = regSnap.docs.map(d => updateDoc(d.ref, { 
-        isMatched: false,
-        results: [] 
-      }));
-      await Promise.all(regPromises);
+      for (const id of regIds) {
+        await runTransaction(db, async (transaction) => {
+          const regRef = doc(db, 'registrations', id);
+          const regSnap = await transaction.get(regRef);
+          if (!regSnap.exists()) return;
+          
+          const regData = regSnap.data();
+          const results = (regData.results || []).filter((r: any) => r.groupKey !== groupKey && r.groupKey !== baseGroupKey);
+          
+          // Tentar inferir a disciplina pelo groupKey para limpar o status correto
+          let discipline = 'Kyorugui'; // default
+          if (groupKey.includes('tábuas')) {
+             discipline = groupKey.split(' - ')[0];
+          } else if (groupKey.includes('Poomsae') || groupKey.includes('Festival')) {
+             discipline = 'Poomsae';
+          }
+
+          transaction.update(regRef, {
+            results,
+            isMatched: false, // Legado
+            [`disciplineStatus.${discipline}.isMatched`]: false,
+            [`disciplineStatus.${discipline}.assignedCategory`]: null
+          });
+        });
+      }
     }
 
   } catch (error) {
@@ -85,9 +95,10 @@ export async function resetBracket(groupKey: string, regIds?: string[]) {
  */
 export async function mergeCategory(regId: string, _originGroup: string, targetGroup: string, _name: string) {
   try {
+    const discipline = targetGroup.includes('tábuas') ? (targetGroup.split(' - ')[0]) : (targetGroup.includes('|') ? 'Kyorugui' : 'Poomsae');
     await updateDoc(doc(db, 'registrations', regId), {
-      assignedCategory: targetGroup,
-      isMatched: false // Permitir re-geração na nova categoria
+      [`disciplineStatus.${discipline}.assignedCategory`]: targetGroup,
+      [`disciplineStatus.${discipline}.isMatched`]: false
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, 'registrations');

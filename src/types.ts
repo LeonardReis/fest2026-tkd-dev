@@ -45,6 +45,10 @@ export interface Registration {
   isElite?: boolean;
   assignedCategory?: string;
   isMatched?: boolean;
+  disciplineStatus?: Record<string, {
+    assignedCategory?: string;
+    isMatched?: boolean;
+  }>;
   results?: { 
     groupKey: string; 
     place: 1 | 2 | 3 | 'WO' | null;

@@ -136,8 +136,8 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
       const targetIds = getIds(baseTarget);
 
       await updateDoc(doc(db, 'registrations', athlete.regId), {
-        assignedCategory: targetGroup,
-        isMatched: false // Crucial: volta ao estado "não iniciado" para mostrar botão Play
+        [`disciplineStatus.${targetGroup.includes('tábuas') ? (targetGroup.split(' - ')[0]) : selectedCategory}.assignedCategory`]: targetGroup,
+        [`disciplineStatus.${targetGroup.includes('tábuas') ? (targetGroup.split(' - ')[0]) : selectedCategory}.isMatched`]: false
       });
 
       if (originGroup) await resetBracket(originGroup, originIds);
@@ -208,7 +208,16 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
       
       categoriesInTab.forEach(catItem => {
         let groupKey = '';
-        if (reg.assignedCategory) {
+        const discStatus = reg.disciplineStatus?.[catItem];
+        
+        if (discStatus?.assignedCategory) {
+          groupKey = discStatus.assignedCategory;
+        } else if (reg.assignedCategory && (
+          // Fallback inteligente para dados legados
+          (isKyopaTab && reg.assignedCategory.includes('tábuas')) ||
+          (selectedCategory === 'Kyorugui' && reg.assignedCategory.includes('|')) ||
+          (selectedCategory === 'Poomsae' && reg.assignedCategory.includes('|') && !reg.assignedCategory.includes('kg'))
+        )) {
           groupKey = reg.assignedCategory;
         } else if (isKyopaTab) {
           groupKey = `${catItem} - ${genderStr}`;
@@ -221,14 +230,21 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
         if (!initialGroups[groupKey]) initialGroups[groupKey] = [];
         if (!initialGroups[groupKey].find(a => a.id === athlete.id)) {
           const result = reg.results?.find(r => r.groupKey === groupKey);
+          
+          // IsMatched também deve ser por disciplina
+          const isMatched = discStatus?.isMatched ?? (
+            // Fallback para isMatched legado
+            (reg.isMatched && groupKey === reg.assignedCategory) ? true : false
+          );
+
           initialGroups[groupKey].push({
             ...athlete,
             regId: reg.id,
             ageCat,
             isLocked: reg.status === 'Confirmado',
             isElite: reg.isElite,
-            isMatched: reg.isMatched,
-            assignedCategory: reg.assignedCategory,
+            isMatched: isMatched,
+            assignedCategory: groupKey,
             academy: academies.find(a => a.id === athlete.academyId)?.name || 'Desconhecida',
             place: result?.place,
             score: result?.score,
@@ -253,9 +269,54 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
       }
     });
 
+    // Se for admin, retornar todos os grupos (ordenados para o cronograma)
+    // Se for usuário, retornar apenas grupos da sua academia
+    const allGroupsSorted = Object.entries(finalGroups).sort(([keyA], [keyB]) => {
+      const getSortWeight = (key: string, cat: string) => {
+        const k = key.toLowerCase();
+        
+        if (cat === 'Kyopa') {
+          // Kyopa não é por idade, ordenar por gênero e tábuas
+          const boards = k.includes('5 tábuas') ? 2 : 1;
+          const gender = k.includes('masculino') ? 1 : 2;
+          return boards * 10 + gender;
+        }
+
+        // Pesos base baseados na ordem de idade
+        let ageWeight = 0;
+        if (k.includes('fraldinha')) ageWeight = 1;
+        else if (k.includes('mirim')) ageWeight = 2;
+        else if (k.includes('infantil')) ageWeight = 3;
+        else if (k.includes('cadete')) ageWeight = 4;
+        else if (k.includes('juvenil')) ageWeight = 5;
+        else if (k.includes('adulto')) ageWeight = 6;
+        else if (k.includes('master')) ageWeight = 7;
+
+        if (cat === 'Kyorugui') {
+          // Turno Manhã (Kyorugui): Juvenil(5), Adulto(6), Master(7)
+          // Turno Tarde (Kyorugui): Cadete(4), Infantil(3), Mirim(2), Fraldinha(1)
+          if (ageWeight >= 5) return ageWeight - 10; // Prioritários ficam negativos
+          return ageWeight;
+        }
+
+        if (cat === 'Poomsae') {
+          // Turno Manhã (Poomsae): Fraldinha(1), Mirim(2), Cadete(4)
+          // Turno Tarde (Poomsae): Juvenil(5), Adulto(6), Master(7)
+          if (ageWeight <= 4) return ageWeight - 10;
+          return ageWeight;
+        }
+
+        return ageWeight;
+      };
+
+      return getSortWeight(keyA, selectedCategory) - getSortWeight(keyB, selectedCategory);
+    });
+
+    const sortedObject: Record<string, any[]> = Object.fromEntries(allGroupsSorted);
+
     if (profile?.role !== 'admin') {
       const filteredGroups: Record<string, any[]> = {};
-      Object.entries(finalGroups).forEach(([key, groupAthletes]) => {
+      Object.entries(sortedObject).forEach(([key, groupAthletes]) => {
         if (groupAthletes.some(a => a.academyId === profile?.academyId)) {
           filteredGroups[key] = groupAthletes;
         }
@@ -263,7 +324,7 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
       return filteredGroups;
     }
     
-    return finalGroups;
+    return sortedObject;
   }, [registrations, athletes, academies, selectedCategory, profile]);
 
   const soloAthletes = useMemo(() => {
@@ -275,11 +336,11 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
       }));
   }, [groupedAthletes]);
 
-  const handleResetMatch = async (regId: string) => {
+  const handleResetMatch = async (regId: string, discipline: string) => {
     try {
       await updateDoc(doc(db, 'registrations', regId), {
-        assignedCategory: null,
-        isMatched: false
+        [`disciplineStatus.${discipline}.assignedCategory`]: null,
+        [`disciplineStatus.${discipline}.isMatched`]: false
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'registrations');
@@ -301,9 +362,16 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
 
       // Ativa o modo de pontuação/lutas para todos os atletas e TRAVA a categoria
       for (const athlete of groupAthletes) {
+        // Para Kyopa, a disciplina pode ser "Kyopa (3 tábuas)" ou "Kyopa (5 tábuas)"
+        const discipline = selectedCategory === 'Kyopa' 
+          ? groupKey.split(' - ')[0] 
+          : selectedCategory;
+
         await updateDoc(doc(db, 'registrations', athlete.regId), { 
-          isMatched: true,
-          assignedCategory: groupKey 
+          [`disciplineStatus.${discipline}`]: {
+            isMatched: true,
+            assignedCategory: groupKey
+          }
         });
       }
     } catch (error: any) {
@@ -343,7 +411,9 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
         <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
-            <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Chaves de Luta</h2>
+            <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">
+              Chaves de {selectedCategory === 'Kyorugui' ? 'Luta' : selectedCategory}
+            </h2>
             <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Gestão de atletas e categorias</p>
           </div>
           <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 overflow-x-auto">
