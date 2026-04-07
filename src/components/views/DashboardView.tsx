@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   School, Users, Trophy, Calendar, Shield, CheckCircle2,
@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, Academy, Registration, Athlete } from '../../types';
 import { Card, cn } from '../ui';
-import { SCHEDULE, getAgeCategory, calculatePrice } from '../../utils';
+import { SCHEDULE, getAgeCategory, calculatePrice, calculateBoards } from '../../utils';
 
 /* ─── Props ──────────────────────────────────────────────────────────────────── */
 interface DashboardProps {
@@ -98,8 +98,22 @@ function AdminDashboard({ stats, academies, registrations, athletes, ranking }: 
   const pending     = registrations.filter((r: Registration) => r.paymentStatus === 'Pendente').length;
   const totalRevenue = registrations
     .filter((r: Registration) => r.paymentStatus === 'Pago' || r.paymentStatus === 'Em Análise')
-    .reduce((sum: number, r: Registration) => sum + calculatePrice(r.categories), 0);
+    .reduce((sum: number, r: Registration) => {
+      const academy = academies.find((a: Academy) => a.id === r.academyId);
+      return sum + calculatePrice(r.categories, academy?.name);
+    }, 0);
+  const totalBoards = registrations
+    .filter((r: Registration) => r.status === 'Confirmado')
+    .reduce((sum: number, r: Registration) => sum + calculateBoards(r.categories), 0);
   const confirmRate = stats.registrations > 0 ? Math.round((confirmed / stats.registrations) * 100) : 0;
+
+  const sortedAcademies = useMemo(() => {
+    return [...academies].sort((a, b) => {
+      const aConf = registrations.filter(r => r.academyId === a.id && r.status === 'Confirmado').length;
+      const bConf = registrations.filter(r => r.academyId === b.id && r.status === 'Confirmado').length;
+      return bConf - aConf;
+    });
+  }, [academies, registrations]);
 
   return (
     <div className="space-y-8">
@@ -108,7 +122,7 @@ function AdminDashboard({ stats, academies, registrations, athletes, ranking }: 
         <KpiCard label="Academias" value={stats.academies} icon={<School className="w-5 h-5" />} color="blue" />
         <KpiCard label="Atletas" value={stats.athletes} icon={<Users className="w-5 h-5" />} color="emerald" />
         <KpiCard label="Confirmados" value={confirmed} icon={<CheckCircle2 className="w-5 h-5" />} color="green" />
-        <KpiCard label="Em Análise" value={inAnalysis} icon={<Clock className="w-5 h-5" />} color="amber" badge={inAnalysis > 0 ? '!' : undefined} />
+        <KpiCard label="Total Tábuas" value={totalBoards} icon={<Target className="w-5 h-5" />} color="orange" />
       </div>
 
       {/* Barra de progresso + receita */}
@@ -157,11 +171,11 @@ function AdminDashboard({ stats, academies, registrations, athletes, ranking }: 
             <TrendingUp className="w-4 h-4 text-stone-500" />
           </div>
           <div className="divide-y divide-white/5">
-            {academies.map((academy: Academy) => {
+            {sortedAcademies.map((academy: Academy) => {
               const acRegs  = registrations.filter((r: Registration) => r.academyId === academy.id);
               const acConf  = acRegs.filter((r: Registration) => r.status === 'Confirmado').length;
               const acAths  = athletes.filter((a: Athlete) => a.academyId === academy.id).length;
-              const acRev   = acRegs.filter((r: Registration) => r.paymentStatus === 'Pago').reduce((s: number, r: Registration) => s + calculatePrice(r.categories), 0);
+              const acRev   = acRegs.filter((r: Registration) => r.paymentStatus === 'Pago').reduce((s: number, r: Registration) => s + calculatePrice(r.categories, academy.name), 0);
               return (
                 <div key={academy.id} className="flex items-center gap-4 px-6 py-4 hover:bg-white/[0.03] transition-colors">
                   <div className="flex-1 min-w-0">
@@ -172,6 +186,7 @@ function AdminDashboard({ stats, academies, registrations, athletes, ranking }: 
                     <Chip label="Atletas" value={acAths} />
                     <Chip label="Inscritos" value={acRegs.length} />
                     <Chip label="Confirmados" value={acConf} highlight={acConf > 0} />
+                    <Chip label="Tábuas" value={acRegs.filter(r => r.status === 'Confirmado').reduce((s, r) => s + calculateBoards(r.categories), 0)} />
                     <span className="text-[10px] font-black text-emerald-400 w-20 text-right">
                       {acRev > 0 ? `R$\u00a0${acRev.toFixed(0)}` : '—'}
                     </span>
@@ -199,6 +214,7 @@ function AcademyDashboard({ profile, academies, registrations, athletes, ranking
   const myRegs      = registrations.filter((r: Registration) => r.academyId === profile?.academyId);
   const myConfirmed = myRegs.filter((r: Registration) => r.status === 'Confirmado').length;
   const myPending   = myRegs.filter((r: Registration) => r.paymentStatus === 'Pendente').length;
+  const myBoards    = myRegs.filter((r: Registration) => r.status === 'Confirmado').reduce((sum, r) => sum + calculateBoards(r.categories), 0);
 
   const inscribedAthleteIds = new Set(myRegs.map((r: Registration) => r.athleteId));
   const uninscribed = myAthletes.filter((a: Athlete) => !inscribedAthleteIds.has(a.id));
@@ -229,7 +245,7 @@ function AcademyDashboard({ profile, academies, registrations, athletes, ranking
         <KpiCard label="Atletas" value={myAthletes.length} icon={<Users className="w-5 h-5" />} color="blue" />
         <KpiCard label="Inscritos" value={myRegs.length} icon={<Target className="w-5 h-5" />} color="amber" />
         <KpiCard label="Confirmados" value={myConfirmed} icon={<CheckCircle2 className="w-5 h-5" />} color="green" />
-        <KpiCard label="Pendentes" value={myPending} icon={<Clock className="w-5 h-5" />} color={myPending > 0 ? 'orange' : 'stone'} badge={myPending > 0 ? String(myPending) : undefined} />
+        <KpiCard label="Minhas Tábuas" value={myBoards} icon={<Target className="w-5 h-5" />} color="orange" />
       </div>
 
       {/* Progresso + Ranking */}

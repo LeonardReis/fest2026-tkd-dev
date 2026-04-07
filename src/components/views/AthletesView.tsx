@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { motion } from 'motion/react';
-import { Plus, Camera, Edit, Trash2, Calendar, UserPlus } from 'lucide-react';
+import { Plus, Camera, Edit, Trash2, Calendar, UserPlus, Search } from 'lucide-react';
 import { collection, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { handleFirestoreError, getAgeCategory, getWeightCategory } from '../../utils';
@@ -14,6 +14,7 @@ export function AthletesView({ profile, user, athletes, academies, registrations
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   // Sincroniza academyId inicial para inscrições se necessário (embora handleSubmit já force)
   React.useEffect(() => {
@@ -143,9 +144,21 @@ export function AthletesView({ profile, user, athletes, academies, registrations
           <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Inscreva e organize seus competidores</p>
         </div>
         {!isAdding && (
-          <Button onClick={() => setIsAdding(true)} variant="primary" className="shadow-red-600/20">
-            <Plus className="w-5 h-5" /> Novo Atleta
-          </Button>
+          <div className="flex flex-col sm:flex-row items-center gap-4">
+            <div className="relative group/search w-full sm:w-64">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-500 group-focus-within/search:text-red-500 transition-colors" />
+              <input 
+                type="text" 
+                placeholder="Buscar atleta..." 
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-2xl py-2.5 pl-11 pr-4 text-sm text-white placeholder:text-stone-600 focus:outline-none focus:border-red-500/50 focus:bg-white/[0.08] transition-all"
+              />
+            </div>
+            <Button onClick={() => setIsAdding(true)} variant="primary" className="shadow-red-600/20 w-full sm:w-auto">
+              <Plus className="w-5 h-5" /> Novo Atleta
+            </Button>
+          </div>
         )}
       </header>
 
@@ -262,7 +275,19 @@ export function AthletesView({ profile, user, athletes, academies, registrations
               </thead>
               <tbody className="divide-y divide-white/5">
                 {athletes
-                  .filter(a => profile?.role === 'admin' || a.academyId === profile?.academyId)
+                  .filter(a => {
+                    const isVisible = profile?.role === 'admin' || a.academyId === profile?.academyId;
+                    if (!isVisible) return false;
+                    if (!searchTerm) return true;
+                    const search = searchTerm.toLowerCase();
+                    const academyName = academies.find(ac => ac.id === a.academyId)?.name.toLowerCase() || '';
+                    return a.name.toLowerCase().includes(search) || academyName.includes(search);
+                  })
+                  .sort((a, b) => {
+                    const aIdx = BELT_OPTIONS.findIndex(opt => opt.value === a.belt);
+                    const bIdx = BELT_OPTIONS.findIndex(opt => opt.value === b.belt);
+                    return bIdx - aIdx;
+                  })
                   .map(athlete => {
                   const ageCat = getAgeCategory(athlete.birthYear, athlete.belt);
                   const weightCat = getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt);

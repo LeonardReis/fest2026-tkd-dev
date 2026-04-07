@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Plus, AlertCircle, Clock, Copy, CheckCircle2, Trash2 } from 'lucide-react';
+import { Plus, AlertCircle, Clock, Copy, CheckCircle2, Trash2, Search } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { collection, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
@@ -18,8 +18,16 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
   const [uploadingAcademyId, setUploadingAcademyId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  const currentPrice = useMemo(() => calculatePrice(formData.categories), [formData.categories]);
+  const selectedAthlete = useMemo(() => athletes.find(a => a.id === formData.athleteId), [athletes, formData.athleteId]);
+  const academyForSelected = useMemo(() => {
+    if (selectedAthlete) return academies.find(a => a.id === selectedAthlete.academyId);
+    if (profile?.role !== 'admin') return academies.find(a => a.id === profile?.academyId);
+    return null;
+  }, [selectedAthlete, academies, profile]);
+
+  const currentPrice = useMemo(() => calculatePrice(formData.categories, academyForSelected?.name), [formData.categories, academyForSelected?.name]);
 
   const toggleCategory = (cat: 'Kyorugui' | 'Poomsae' | 'Kyopa (3 tábuas)' | 'Kyopa (5 tábuas)') => {
     setFormData(prev => ({
@@ -111,15 +119,29 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
     }
   };
 
-  const myAcademyRegs = profile?.role === 'admin'
-    ? registrations
-    : registrations.filter(r => r.academyId === profile?.academyId);
-  
   const academiesWithPendingOrAnalysis = academies
     .filter(a => profile?.role === 'admin' || a.id === profile?.academyId)
     .filter(a => 
       registrations.some(r => r.academyId === a.id && (r.paymentStatus === 'Pendente' || r.paymentStatus === 'Em Análise'))
     );
+
+  const filteredRegs = useMemo(() => {
+    const list = profile?.role === 'admin'
+      ? registrations
+      : registrations.filter(r => r.academyId === profile?.academyId);
+    
+    if (!searchTerm) return list;
+
+    const search = searchTerm.toLowerCase();
+    return list.filter(reg => {
+      const athlete = athletes.find(a => a.id === reg.athleteId);
+      const academy = academies.find(a => a.id === reg.academyId);
+      return (
+        athlete?.name.toLowerCase().includes(search) || 
+        academy?.name.toLowerCase().includes(search)
+      );
+    });
+  }, [profile, registrations, searchTerm, athletes, academies]);
 
   const handlePaymentStatus = async (regId: string, currentStatus: string) => {
     try {
@@ -140,17 +162,31 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
           <h2 className="text-2xl font-black text-white italic uppercase tracking-tighter">Inscrições</h2>
           <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Festival União Lopes 2026</p>
         </div>
-        {!isAdding && athletes.length > 0 && (
-          <Button onClick={() => setIsAdding(true)} variant="primary">
-            <Plus className="w-5 h-5" /> Nova Inscrição
-          </Button>
+        {!isAdding && (
+          <div className="flex flex-col sm:flex-row items-center gap-4">
+            <div className="relative group/search w-full sm:w-64">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-500 group-focus-within/search:text-red-500 transition-colors" />
+              <input 
+                type="text" 
+                placeholder="Buscar inscrição..." 
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-2xl py-2.5 pl-11 pr-4 text-sm text-white placeholder:text-stone-600 focus:outline-none focus:border-red-500/50 focus:bg-white/[0.08] transition-all"
+              />
+            </div>
+            {athletes.length > 0 && (
+              <Button onClick={() => setIsAdding(true)} variant="primary" className="shadow-red-600/20 w-full sm:w-auto">
+                <Plus className="w-5 h-5" /> Nova Inscrição
+              </Button>
+            )}
+          </div>
         )}
       </header>
 
       {!isAdding && academiesWithPendingOrAnalysis.map(academy => {
         const pendingRegs = registrations.filter(r => r.academyId === academy.id && r.paymentStatus === 'Pendente');
         const analysisRegs = registrations.filter(r => r.academyId === academy.id && r.paymentStatus === 'Em Análise');
-        const totalPending = pendingRegs.reduce((sum, r) => sum + calculatePrice(r.categories), 0);
+        const totalPending = pendingRegs.reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
         const academyReceipts = receipts.filter(r => r.academyId === academy.id);
 
         return (
@@ -185,7 +221,7 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
                               <p className="text-[8px] text-stone-500 font-bold uppercase tracking-widest">{reg.categories.join(' + ')}</p>
                             </div>
                           </div>
-                          <p className="text-xs font-black text-white tabular-nums tracking-tighter">R$ {calculatePrice(reg.categories).toFixed(2).replace('.', ',')}</p>
+                          <p className="text-xs font-black text-white tabular-nums tracking-tighter">R$ {calculatePrice(reg.categories, academy.name).toFixed(2).replace('.', ',')}</p>
                         </div>
                       );
                     })}
@@ -481,7 +517,7 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {myAcademyRegs.map(reg => {
+                {filteredRegs.map(reg => {
                   const athlete = athletes.find(a => a.id === reg.athleteId);
                   return (
                     <tr key={reg.id} className="hover:bg-white/[0.03] transition-colors group/row">
@@ -573,7 +609,7 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
               </tbody>
             </table>
           </div>
-          {myAcademyRegs.length === 0 && (
+          {filteredRegs.length === 0 && (
             <div className="py-24 text-center">
               <p className="text-[10px] text-stone-600 uppercase font-black tracking-[0.2em]">Sem inscrições realizadas</p>
             </div>

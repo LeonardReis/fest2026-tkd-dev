@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { CreditCard, FileText, Trash2 } from 'lucide-react';
 import { doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { handleFirestoreError, calculatePrice } from '../../utils';
+import { handleFirestoreError, calculatePrice, calculateBoards } from '../../utils';
 import { Registration, Athlete, Academy, UserProfile, OperationType } from '../../types';
 import { User } from 'firebase/auth';
 import { Button, Card, cn } from '../ui';
@@ -14,9 +14,11 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
 
   const academyStats = useMemo(() => academies.map(academy => {
     const academyRegs = registrations.filter(r => r.academyId === academy.id);
-    const totalValue = academyRegs.reduce((sum, r) => sum + calculatePrice(r.categories), 0);
-    const paidValue = academyRegs.filter(r => r.paymentStatus === 'Pago').reduce((sum, r) => sum + calculatePrice(r.categories), 0);
+    const totalValue = academyRegs.reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
+    const paidValue = academyRegs.filter(r => r.paymentStatus === 'Pago').reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
     const pendingValue = totalValue - paidValue;
+    const totalBoards = academyRegs.filter(r => r.status === 'Confirmado').reduce((sum, r) => sum + calculateBoards(r.categories), 0);
+    const totalConf = academyRegs.filter(r => r.status === 'Confirmado').length;
     
     return {
       ...academy,
@@ -24,9 +26,11 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
       totalValue,
       paidValue,
       pendingValue,
+      totalBoards,
+      totalConf,
       pendingRegs: academyRegs.filter(r => r.paymentStatus === 'Pendente' || r.paymentStatus === 'Em Análise')
     };
-  }).filter(a => a.totalRegs > 0), [academies, registrations, settings]);
+  }).filter(a => a.totalRegs > 0).sort((a, b) => b.totalConf - a.totalConf), [academies, registrations, settings]);
 
   const handleApproveAll = async (academyId: string) => {
     if (!window.confirm('Aprovar todos os pagamentos pendentes desta academia?')) return;
@@ -105,9 +109,9 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
               <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-2">Total Pendente</p>
               <p className="text-4xl font-black text-white tracking-tighter italic">R$ {academyStats.reduce((sum, a) => sum + a.pendingValue, 0).toFixed(2).replace('.', ',')}</p>
             </Card>
-            <Card className="p-8 border-white/5 bg-white/[0.02]">
-              <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-2">Inscrições Totais</p>
-              <p className="text-4xl font-black text-white tracking-tighter italic">{registrations.length}</p>
+            <Card className="p-8 border-white/5 bg-gradient-to-br from-orange-600/10 to-transparent">
+              <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-2">Total de Tábuas (Confirmadas)</p>
+              <p className="text-4xl font-black text-white tracking-tighter italic">{academyStats.reduce((sum, a) => sum + a.totalBoards, 0)}</p>
             </Card>
           </div>
 
@@ -156,6 +160,7 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Atletas</th>
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Pendente</th>
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Pago</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Tábuas</th>
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em] text-center">Ações</th>
                   </tr>
                 </thead>
@@ -181,6 +186,11 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
                         </td>
                         <td className="px-8 py-6 text-emerald-500 font-black tabular-nums tracking-tighter">
                            R$ {stat.paidValue.toFixed(2).replace('.', ',')}
+                        </td>
+                        <td className="px-8 py-6">
+                           <span className={cn("px-2.5 py-1 rounded-lg text-[10px] font-black", stat.totalBoards > 0 ? "bg-orange-500/10 border border-orange-500/20 text-orange-500" : "bg-white/5 border border-white/10 text-stone-500")}>
+                             {stat.totalBoards}
+                           </span>
                         </td>
                         <td className="px-8 py-6">
                           <div className="flex justify-center gap-3">

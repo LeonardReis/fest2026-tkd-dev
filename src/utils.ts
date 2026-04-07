@@ -231,22 +231,47 @@ export const DEFAULT_PRICE_CONFIG: PriceConfig = {
 };
 
 /**
- * Calcula o valor total de uma inscrição com base nas categorias e na tabela
- * de preços configurável. Centralizado aqui para evitar duplicação entre
- * RegistrationsView e AdminView.
+ * Calcula o preço da inscrição com base nas categorias selecionadas e na academia.
+ * Aplica desconto de R$ 10,00 para academias do projeto UNIÃO LOPES TAEKWONDO.
  */
-export function calculatePrice(categories: string[], config: PriceConfig = DEFAULT_PRICE_CONFIG): number {
+export function calculatePrice(
+  categories: string[], 
+  academyName?: string,
+  config: PriceConfig = DEFAULT_PRICE_CONFIG
+): number {
+  if (categories.length === 0) return 0;
+  
+  const discountAcademies = ['Djalma Johnsson', 'CCM Alfredo Chaves'];
+  const hasDiscount = academyName && discountAcademies.includes(academyName);
+  const discountAmount = hasDiscount ? 10 : 0;
+
   let total = 0;
+  
   if (categories.includes('Kyorugui') || categories.includes('Poomsae')) {
-    total += config.kyoruguiPoomsae;
+    // O valor base (R$ 90) cobre Kyorugui, Poomsae ou ambos.
+    total += Math.max(0, config.kyoruguiPoomsae - discountAmount);
   }
+  
   if (categories.includes('Kyopa (3 tábuas)')) {
     total += config.kyopa3;
   }
+  
   if (categories.includes('Kyopa (5 tábuas)')) {
     total += config.kyopa5;
   }
+  
   return total;
+}
+
+/**
+ * Calcula a quantidade de tábuas de quebramento (Kyopa) em uma lista de categorias.
+ */
+export function calculateBoards(categories: string[]): number {
+  return categories.reduce((sum, cat) => {
+    if (cat === 'Kyopa (3 tábuas)') return sum + 3;
+    if (cat === 'Kyopa (5 tábuas)') return sum + 5;
+    return sum;
+  }, 0);
 }
 
 // ─── PIX Helpers ─────────────────────────────────────────────────────────────
