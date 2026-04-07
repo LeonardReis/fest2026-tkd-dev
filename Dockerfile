@@ -15,6 +15,6 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/server.ts ./
 COPY --from=build /app/.env* ./
 
-EXPOSE 3000
+EXPOSE 8080
 ENV NODE_ENV=production
 CMD ["node", "--experimental-strip-types", "server.ts"]
