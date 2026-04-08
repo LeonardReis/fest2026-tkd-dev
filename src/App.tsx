@@ -86,7 +86,13 @@ export default function App() {
   const [error, setError] = useState<Error | null>(null);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
   const [view, setView] = useState<ViewMode>('dashboard');
+  const [viewParams, setViewParams] = useState<any>(null);
   
+  const navigateTo = (newView: ViewMode, params?: any) => {
+    setView(newView);
+    setViewParams(params);
+  };
+
   const [academies, setAcademies] = useState<Academy[]>([]);
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
@@ -425,16 +431,16 @@ export default function App() {
           </div>
 
           <nav className="flex-1 p-4 space-y-2">
-            <NavItem active={view === 'dashboard'} onClick={() => setView('dashboard')} icon={<Users className="w-5 h-5" />} label="Dashboard" />
-            <NavItem active={view === 'academy'} onClick={() => setView('academy')} icon={<School className="w-5 h-5" />} label="Minha Academia" />
-            <NavItem active={view === 'athletes'} onClick={() => setView('athletes')} icon={<UserPlus className="w-5 h-5" />} label="Atletas" />
-            <NavItem active={view === 'registrations'} onClick={() => setView('registrations')} icon={<Calendar className="w-5 h-5" />} label="Inscrições" />
-            <NavItem active={view === 'competition'} onClick={() => setView('competition')} icon={<Trophy className="w-5 h-5" />} label="Chaves" />
+            <NavItem active={view === 'dashboard'} onClick={() => navigateTo('dashboard')} icon={<Users className="w-5 h-5" />} label="Dashboard" />
+            <NavItem active={view === 'academy'} onClick={() => navigateTo('academy')} icon={<School className="w-5 h-5" />} label="Minha Academia" />
+            <NavItem active={view === 'athletes'} onClick={() => navigateTo('athletes')} icon={<UserPlus className="w-5 h-5" />} label="Atletas" />
+            <NavItem active={view === 'registrations'} onClick={() => navigateTo('registrations')} icon={<Calendar className="w-5 h-5" />} label="Inscrições" />
+            <NavItem active={view === 'competition'} onClick={() => navigateTo('competition')} icon={<Trophy className="w-5 h-5" />} label="Chaves" />
             {profile?.role === 'admin' && (
-              <NavItem active={view === 'ranking'} onClick={() => setView('ranking')} icon={<Medal className="w-5 h-5" />} label="Ranking" />
+              <NavItem active={view === 'ranking'} onClick={() => navigateTo('ranking')} icon={<Medal className="w-5 h-5" />} label="Ranking" />
             )}
             {profile?.role === 'admin' && (
-              <NavItem active={view === 'admin'} onClick={() => setView('admin')} icon={<Shield className="w-5 h-5" />} label="Administração" />
+              <NavItem active={view === 'admin'} onClick={() => navigateTo('admin')} icon={<Shield className="w-5 h-5" />} label="Administração" />
             )}
           </nav>
 
@@ -502,10 +508,10 @@ export default function App() {
               </header>
 
               <AnimatePresence mode="wait">
-                {view === 'dashboard' && <DashboardView key="dashboard" profile={profile} stats={{ academies: academies.length, athletes: athletes.length, registrations: registrations.length }} settings={settings} academies={academies} registrations={registrations} athletes={athletes} />}
+                {view === 'dashboard' && <DashboardView key="dashboard" profile={profile} stats={{ academies: academies.length, athletes: athletes.length, registrations: registrations.length }} settings={settings} academies={academies} registrations={registrations} athletes={athletes} onNavigate={navigateTo} />}
                 {view === 'academy' && <AcademyView key="academy" profile={profile} academies={academies} />}
                 {view === 'athletes' && <AthletesView key="athletes" profile={profile} user={user} athletes={athletes} academies={academies} registrations={registrations} />}
-                {view === 'registrations' && <RegistrationsView key="registrations" profile={profile} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} onViewReceipt={setViewingReceipt} />}
+                {view === 'registrations' && <RegistrationsView key="registrations" profile={profile} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} onViewReceipt={setViewingReceipt} initialAthleteId={viewParams?.athleteId} />}
                 {view === 'competition' && <CompetitionView key="competition" profile={profile} user={user} registrations={registrations} athletes={athletes} academies={academies} />}
                 {view === 'ranking' && <RankingView key="ranking" academies={academies} registrations={registrations} />}
                 {view === 'admin' && <AdminView key="admin" profile={profile} user={user} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} onViewReceipt={setViewingReceipt} />}

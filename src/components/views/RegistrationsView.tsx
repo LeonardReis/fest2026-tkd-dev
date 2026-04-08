@@ -8,7 +8,7 @@ import { handleFirestoreError, calculatePrice, generatePix, formatWhatsAppNumber
 import { Registration, Athlete, Academy, UserProfile, OperationType } from '../../types';
 import { Button, Card, Select, cn } from '../ui';
 
-export function RegistrationsView({ profile, registrations, athletes, academies, receipts, settings, onViewReceipt }: { profile: UserProfile | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; settings: any; onViewReceipt: (data: string) => void }) {
+export function RegistrationsView({ profile, registrations, athletes, academies, receipts, settings, onViewReceipt, initialAthleteId }: { profile: UserProfile | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; settings: any; onViewReceipt: (data: string) => void; initialAthleteId?: string }) {
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({
     athleteId: '',
@@ -19,6 +19,13 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
   const [uploadingAcademyId, setUploadingAcademyId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  React.useEffect(() => {
+    if (initialAthleteId) {
+      setIsAdding(true);
+      setFormData(prev => ({ ...prev, athleteId: initialAthleteId }));
+    }
+  }, [initialAthleteId]);
 
   const selectedAthlete = useMemo(() => athletes.find(a => a.id === formData.athleteId), [athletes, formData.athleteId]);
   const academyForSelected = useMemo(() => {

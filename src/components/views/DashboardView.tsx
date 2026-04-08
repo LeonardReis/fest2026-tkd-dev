@@ -18,10 +18,11 @@ interface DashboardProps {
   academies: Academy[];
   registrations: Registration[];
   athletes: Athlete[];
+  onNavigate: (view: any, params?: any) => void;
 }
 
 /* ─── Main ───────────────────────────────────────────────────────────────────── */
-export function DashboardView({ stats, profile, settings, academies, registrations, athletes }: DashboardProps) {
+export function DashboardView({ stats, profile, settings, academies, registrations, athletes, onNavigate }: DashboardProps) {
   const isAdmin = profile?.role === 'admin';
 
   /* ── Ranking global ─────────────────────────────────────────── */
@@ -53,8 +54,8 @@ export function DashboardView({ stats, profile, settings, academies, registratio
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-10">
 
       {isAdmin
-        ? <AdminDashboard stats={stats} academies={academies} registrations={registrations} athletes={athletes} ranking={ranking} />
-        : <AcademyDashboard profile={profile} academies={academies} registrations={registrations} athletes={athletes} ranking={ranking} />
+        ? <AdminDashboard stats={stats} academies={academies} registrations={registrations} athletes={athletes} ranking={ranking} onNavigate={onNavigate} />
+        : <AcademyDashboard profile={profile} academies={academies} registrations={registrations} athletes={athletes} ranking={ranking} onNavigate={onNavigate} />
       }
 
       {/* Cronograma — visível para todos */}
@@ -93,7 +94,7 @@ export function DashboardView({ stats, profile, settings, academies, registratio
 }
 
 /* ─── Admin Dashboard ────────────────────────────────────────────────────────── */
-function AdminDashboard({ stats, academies, registrations, athletes, ranking }: any) {
+function AdminDashboard({ stats, academies, registrations, athletes, ranking, onNavigate }: any) {
   const confirmed   = registrations.filter((r: Registration) => r.status === 'Confirmado').length;
   const inAnalysis  = registrations.filter((r: Registration) => r.paymentStatus === 'Em Análise').length;
   const pending     = registrations.filter((r: Registration) => r.paymentStatus === 'Pendente').length;
@@ -212,7 +213,7 @@ function AdminDashboard({ stats, academies, registrations, athletes, ranking }: 
 }
 
 /* ─── Academy Dashboard ──────────────────────────────────────────────────────── */
-function AcademyDashboard({ profile, academies, registrations, athletes, ranking }: any) {
+function AcademyDashboard({ profile, academies, registrations, athletes, ranking, onNavigate }: any) {
   const myAcademy   = academies.find((a: Academy) => a.id === profile?.academyId);
   const myAthletes  = athletes.filter((a: Athlete) => a.academyId === profile?.academyId);
   const myRegs      = registrations.filter((r: Registration) => r.academyId === profile?.academyId);
@@ -336,7 +337,11 @@ function AcademyDashboard({ profile, academies, registrations, athletes, ranking
             {uninscribed.map((athlete: Athlete) => {
               const ageCat = getAgeCategory(athlete.birthYear, athlete.belt);
               return (
-                <div key={athlete.id} className="flex items-center justify-between px-6 py-3 hover:bg-white/[0.02] transition-colors group">
+                <div 
+                  key={athlete.id} 
+                  onClick={() => onNavigate('registrations', { athleteId: athlete.id })}
+                  className="flex items-center justify-between px-6 py-3 hover:bg-white/[0.04] cursor-pointer transition-all group active:scale-[0.98]"
+                >
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center border border-white/5 text-xs font-black text-white">
                       {athlete.name.charAt(0)}
