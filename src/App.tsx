@@ -26,7 +26,8 @@ import {
   Athlete, 
   Registration, 
   UserProfile, 
-  OperationType 
+  OperationType,
+  Transaction
 } from './types';
 import { handleFirestoreError, getAgeCategory, getWeightCategory, calculatePrice, generatePix, formatWhatsAppNumber } from './utils';
 import { PREDEFINED_ACADEMIES, BELT_OPTIONS } from './constants';
@@ -97,6 +98,7 @@ export default function App() {
   const [athletes, setAthletes] = useState<Athlete[]>([]);
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [receipts, setReceipts] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [settings, setSettings] = useState<any>({ mercadoPagoEnabled: true });
   const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
 
@@ -241,6 +243,12 @@ export default function App() {
       setReceipts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, (err) => {
       try { handleFirestoreError(err, OperationType.LIST, 'receipts'); } catch (e) { setError(e as Error); }
+    }));
+
+    listeners.push(onSnapshot(buildQuery('transactions'), (snap) => {
+      setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() } as Transaction)));
+    }, (err) => {
+      try { handleFirestoreError(err, OperationType.LIST, 'transactions'); } catch (e) { setError(e as Error); }
     }));
 
     return () => listeners.forEach(l => l());
@@ -511,10 +519,10 @@ export default function App() {
                 {view === 'dashboard' && <DashboardView key="dashboard" profile={profile} stats={{ academies: academies.length, athletes: athletes.length, registrations: registrations.length }} settings={settings} academies={academies} registrations={registrations} athletes={athletes} onNavigate={navigateTo} />}
                 {view === 'academy' && <AcademyView key="academy" profile={profile} academies={academies} />}
                 {view === 'athletes' && <AthletesView key="athletes" profile={profile} user={user} athletes={athletes} academies={academies} registrations={registrations} />}
-                {view === 'registrations' && <RegistrationsView key="registrations" profile={profile} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} onViewReceipt={setViewingReceipt} initialAthleteId={viewParams?.athleteId} />}
+                {view === 'registrations' && <RegistrationsView key="registrations" profile={profile} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} transactions={transactions} onViewReceipt={setViewingReceipt} initialAthleteId={viewParams?.athleteId} />}
                 {view === 'competition' && <CompetitionView key="competition" profile={profile} user={user} registrations={registrations} athletes={athletes} academies={academies} />}
                 {view === 'ranking' && <RankingView key="ranking" academies={academies} registrations={registrations} />}
-                {view === 'admin' && <AdminView key="admin" profile={profile} user={user} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} onViewReceipt={setViewingReceipt} />}
+                {view === 'admin' && <AdminView key="admin" profile={profile} user={user} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} transactions={transactions} settings={settings} onViewReceipt={setViewingReceipt} />}
                 {view === 'profile' && <ProfileView key="profile" profile={profile} user={user} />}
               </AnimatePresence>
             </div>

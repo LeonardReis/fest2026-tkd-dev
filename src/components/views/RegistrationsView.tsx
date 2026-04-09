@@ -5,10 +5,10 @@ import { QRCodeSVG } from 'qrcode.react';
 import { collection, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { handleFirestoreError, calculatePrice, calculateCashback, generatePix, formatWhatsAppNumber, getAgeCategory } from '../../utils';
-import { Registration, Athlete, Academy, UserProfile, OperationType } from '../../types';
+import { Registration, Athlete, Academy, UserProfile, OperationType, Transaction } from '../../types';
 import { Button, Card, Select, cn } from '../ui';
 
-export function RegistrationsView({ profile, registrations, athletes, academies, receipts, settings, onViewReceipt, initialAthleteId }: { profile: UserProfile | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; settings: any; onViewReceipt: (data: string) => void; initialAthleteId?: string }) {
+export function RegistrationsView({ profile, registrations, athletes, academies, receipts, settings, transactions, onViewReceipt, initialAthleteId }: { profile: UserProfile | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; settings: any; transactions: Transaction[]; onViewReceipt: (data: string) => void; initialAthleteId?: string }) {
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({
     athleteId: '',
@@ -583,7 +583,7 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
                               className="p-3 bg-white/5 hover:bg-amber-600/20 group/req" 
                               onClick={() => {
                                 const text = `Olá Leonardo! Preciso de uma edição na inscrição do atleta *${athlete?.name}* (ID: ${reg.id.substring(0,5)}). Pode me ajudar? 🥋`;
-                                window.open(`https://wa.me/5541999999999?text=${encodeURIComponent(text)}`, '_blank'); // Número fictício do admin ou via settings
+                                window.open(`https://wa.me/5541999999999?text=${encodeURIComponent(text)}`, '_blank');
                               }}
                             >
                                <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest px-1">Editar</span>
@@ -609,10 +609,29 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
         const pendingRegs = registrations.filter(r => r.academyId === academy.id && r.paymentStatus === 'Pendente');
         const analysisRegs = registrations.filter(r => r.academyId === academy.id && r.paymentStatus === 'Em Análise');
         
-        const totalGross = pendingRegs.reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
-        const totalCashback = pendingRegs.reduce((sum, r) => sum + calculateCashback(r.categories, academy.name), 0);
-        const totalNet = totalGross - totalCashback;
+        const academyTransactions = transactions ? transactions.filter(t => t.academyId === academy.id) : [];
+        const academyCredits = academyTransactions.filter(t => t.type === 'EXPENSE' && t.category !== 'settlement').reduce((sum, t) => sum + t.amount, 0); 
+        const academyDebts = academyTransactions.filter(t => t.type === 'INCOME' && t.category !== 'settlement').reduce((sum, t) => sum + t.amount, 0); 
+        
+        const internalSettlements = academyTransactions.filter(t => t.category === 'settlement').reduce((sum, t) => {
+          if (t.type === 'EXPENSE') return sum - t.amount;
+          if (t.type === 'INCOME') return sum + t.amount;
+          return sum;
+        }, 0);
 
+        const transactionsNet = academyCredits - academyDebts + internalSettlements;
+        
+        const academyRegs = filteredRegs.filter(r => r.academyId === academy.id);
+        const academyTotalGross = academyRegs.reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
+        const academyTotalCashback = academyRegs.reduce((sum, r) => sum + calculateCashback(r.categories, academy.name), 0);
+        const academyTotalNet = academyTotalGross - academyTotalCashback;
+        
+        const paidGross = academyRegs.filter(r => r.paymentStatus === 'Pago').reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
+        const paidCashback = academyRegs.filter(r => r.paymentStatus === 'Pago').reduce((sum, r) => sum + calculateCashback(r.categories, academy.name), 0);
+        const paidNet = paidGross - paidCashback;
+
+        const pendingNet = academyTotalNet - paidNet - transactionsNet;
+        const finalAmountToPay = pendingNet > 0 ? pendingNet : 0;
         const academyReceipts = receipts.filter(r => r.academyId === academy.id);
 
         return (
@@ -661,70 +680,73 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
                     <div className="flex items-baseline justify-between mb-2">
                       <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Total Líquido</p>
                       <div className="text-right">
-                        <p className="text-[10px] text-stone-600 font-bold uppercase tracking-widest">Bruto: R$ {totalGross.toFixed(0)}</p>
-                        <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest">Cashback: - R$ {totalCashback.toFixed(0)}</p>
+                        <p className="text-[10px] text-stone-600 font-bold uppercase tracking-widest">Inscrições: R$ {(academyTotalNet - paidNet).toFixed(0)}</p>
+                        {transactionsNet !== 0 && (
+                          <p className={transactionsNet > 0 ? "text-[10px] font-bold uppercase tracking-widest text-emerald-500" : "text-[10px] font-bold uppercase tracking-widest text-red-500"}>
+                            Lançamentos Extras: {transactionsNet > 0 ? '-' : '+'} R$ {Math.abs(transactionsNet).toFixed(0)}
+                          </p>
+                        )}
                       </div>
                     </div>
-                    <p className="text-5xl font-black text-white tracking-tighter italic">R$ {totalNet.toFixed(2).replace('.', ',')}</p>
+                    <p className="text-5xl font-black text-white tracking-tighter italic">R$ {finalAmountToPay.toFixed(2).replace('.', ',')}</p>
                   </div>
                 )}
               </div>
 
               {pendingRegs.length > 0 ? (
                 <div className="w-full lg:w-96 flex flex-col gap-6">
-                  <div className="bg-white p-6 rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.05)] border-4 border-white/20 relative group/pix">
-                    <div className="absolute inset-0 bg-red-600/5 rounded-[22px] blur-xl opacity-0 group-hover/pix:opacity-100 transition-opacity" />
-                    <div className="relative z-10 flex flex-col items-center gap-4">
-                      <QRCodeSVG 
-                        value={generatePix(
-                          totalNet, 
-                          `Lote ${academy.name.substring(0, 10)}`, 
-                          academy.id.substring(0, 5)
-                        )} 
-                        size={180} 
-                        className="w-full h-auto max-w-[180px]" 
-                      />
-                      <div className="w-full space-y-3 mt-2">
-                        <div className="space-y-1 mb-2">
-                          <p className="text-[9px] font-black text-stone-500 uppercase tracking-widest pl-1">Descrição do Pagamento</p>
-                          <div className="p-3 bg-black/40 border border-white/5 rounded-xl text-[9px] text-stone-300 font-bold uppercase leading-relaxed">
-                            {pendingRegs.map(reg => {
-                              const athlete = athletes.find(a => a.id === reg.athleteId);
-                              return `${athlete?.name} (${reg.categories.join(' + ')})`;
-                            }).join(', ')}
-                          </div>
-                        </div>
-                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest text-center mt-4">PIX Copia e Cola (Leonardo Reis)</p>
-                        <div className="flex gap-2">
-                          <input 
-                            type="text" 
-                            readOnly 
-                            value={generatePix(
-                              totalNet, 
-                              `Lote ${academy.name.substring(0, 10)}`, 
-                              academy.id.substring(0, 5)
-                            )} 
-                            className="w-full text-[10px] font-mono px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-white outline-none focus:border-red-600/50 transition-all" 
-                          />
-                          <Button 
-                            variant="primary" 
-                            className="shrink-0 px-4 py-3 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 group/copy"
-                            onClick={() => {
-                              navigator.clipboard.writeText(generatePix(
-                                totalNet, 
+                  {finalAmountToPay > 0 ? (
+                    <div className="bg-white p-6 rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.05)] border-4 border-white/20 relative group/pix">
+                      <div className="absolute inset-0 bg-red-600/5 rounded-[22px] blur-xl opacity-0 group-hover/pix:opacity-100 transition-opacity" />
+                      <div className="relative z-10 flex flex-col items-center gap-4">
+                        <QRCodeSVG 
+                          value={generatePix(
+                            finalAmountToPay, 
+                            `Lote ${academy.name.substring(0, 10)}`, 
+                            academy.id.substring(0, 5)
+                          )} 
+                          size={180} 
+                          className="w-full h-auto max-w-[180px]" 
+                          level="H" 
+                        />
+                        <div className="w-full space-y-3 mt-2">
+                          <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest text-center mt-4">PIX Copia e Cola (Leonardo Reis)</p>
+                          <div className="flex gap-2">
+                            <input 
+                              type="text" 
+                              readOnly 
+                              value={generatePix(
+                                finalAmountToPay, 
                                 `Lote ${academy.name.substring(0, 10)}`, 
                                 academy.id.substring(0, 5)
-                              ));
-                              alert('Código PIX com valor e descrição automática copiado!');
-                            }}
-                          >
-                            <Copy className="w-3.5 h-3.5 group-hover/copy:scale-110 transition-transform" />
-                            <span>Copiar</span>
-                          </Button>
+                              )} 
+                              className="w-full text-[10px] font-mono px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-white outline-none focus:border-red-600/50 transition-all" 
+                            />
+                            <Button 
+                              variant="primary" 
+                              className="shrink-0 px-4 py-3 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 group/copy"
+                              onClick={() => {
+                                navigator.clipboard.writeText(generatePix(
+                                  finalAmountToPay, 
+                                  `Lote ${academy.name.substring(0, 10)}`, 
+                                  academy.id.substring(0, 5)
+                                ));
+                                alert('Código PIX com valor e descrição automática copiado!');
+                              }}
+                            >
+                              <Copy className="w-3.5 h-3.5 group-hover/copy:scale-110 transition-transform" />
+                              <span>Copiar</span>
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="bg-white/5 p-6 rounded-3xl border border-white/10 text-center text-stone-400">
+                      <p className="text-sm font-bold uppercase">Sem saldo a pagar pendente.</p>
+                      <p className="text-[10px] mt-2">Os lançamentos extras já cobrem os custos das inscrições aguardando pagamento.</p>
+                    </div>
+                  )}
 
                   <div className="space-y-4">
 

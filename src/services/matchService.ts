@@ -44,7 +44,7 @@ export async function saveBracketMatches(matches: Match[]) {
 /**
  * Reseta o chaveamento de uma categoria específica
  */
-export async function resetBracket(groupKey: string, regIds?: string[]) {
+export async function resetBracket(groupKey: string, regIds?: string[], disciplineStr?: string) {
   try {
     // Detectar se é um subgrupo (ex: "Categoria - G1") e pegar a base
     const baseGroupKey = groupKey.replace(/\s+-\s+G\d+$/, '');
@@ -67,11 +67,14 @@ export async function resetBracket(groupKey: string, regIds?: string[]) {
           const results = (regData.results || []).filter((r: any) => r.groupKey !== groupKey && r.groupKey !== baseGroupKey);
           
           // Tentar inferir a disciplina pelo groupKey para limpar o status correto
-          let discipline = 'Kyorugui'; // default
-          if (groupKey.includes('tábuas')) {
-             discipline = groupKey.split(' - ')[0];
-          } else if (groupKey.includes('Poomsae') || groupKey.includes('Festival')) {
-             discipline = 'Poomsae';
+          let discipline = disciplineStr;
+          if (!discipline) {
+            discipline = 'Kyorugui'; // default
+            if (groupKey.includes('tábuas')) {
+               discipline = groupKey.split(' - ')[0];
+            } else if (groupKey.includes('Poomsae') || groupKey.includes('Festival')) {
+               discipline = 'Poomsae';
+            }
           }
 
           transaction.update(regRef, {

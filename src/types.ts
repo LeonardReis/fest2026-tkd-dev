@@ -58,6 +58,18 @@ export interface Registration {
   }[];
 }
 
+export interface Transaction {
+  id: string;
+  type: 'INCOME' | 'EXPENSE';
+  category: 'rent' | 'bonus' | 'medals' | 'staff' | 'settlement' | 'other';
+  amount: number;
+  description: string;
+  date: string;
+  academyId?: string;
+  createdBy: string;
+  isSettled?: boolean;
+}
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',

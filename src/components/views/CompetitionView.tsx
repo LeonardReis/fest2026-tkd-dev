@@ -140,8 +140,8 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
         [`disciplineStatus.${targetGroup.includes('tábuas') ? (targetGroup.split(' - ')[0]) : selectedCategory}.isMatched`]: false
       });
 
-      if (originGroup) await resetBracket(originGroup, originIds);
-      await resetBracket(targetGroup, targetIds);
+      if (originGroup) await resetBracket(originGroup, originIds, selectedCategory === 'Kyopa' ? originGroup.split(' - ')[0] : selectedCategory);
+      await resetBracket(targetGroup, targetIds, selectedCategory === 'Kyopa' ? targetGroup.split(' - ')[0] : selectedCategory);
 
     } catch (error) {
       console.error('Erro ao mover atleta:', error);
@@ -174,7 +174,8 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
     
     if (!window.confirm(`AVISO: Isso irá apagar TODAS as lutas e o pódio de toda a categoria "${baseGroupKey}". Deseja continuar?`)) return;
     try {
-      await resetBracket(groupKey, regIds);
+      const discipline = selectedCategory === 'Kyopa' ? groupKey.split(' - ')[0] : selectedCategory;
+      await resetBracket(groupKey, regIds, discipline);
     } catch (error) {
       alert("Erro ao resetar chave");
     }
@@ -259,10 +260,20 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
     Object.entries(initialGroups).forEach(([key, groupAthletes]) => {
       // Agrupamento em subgrupos de 4 só ocorre APÓS o play (quando isMatched for verdadeiro)
       if (selectedCategory === 'Poomsae' && groupAthletes.length > 4 && groupAthletes.some(a => a.isMatched)) {
-        for (let i = 0; i < groupAthletes.length; i += 4) {
-          const chunk = groupAthletes.slice(i, i + 4);
-          const groupNum = Math.floor(i / 4) + 1;
-          finalGroups[`${key} - G${groupNum}`] = chunk;
+        const total = groupAthletes.length;
+        const numGroups = Math.ceil(total / 4);
+        const baseSize = Math.floor(total / numGroups);
+        let remainder = total % numGroups;
+        
+        let currentIndex = 0;
+        for (let i = 0; i < numGroups; i++) {
+          const groupSize = baseSize + (remainder > 0 ? 1 : 0);
+          remainder--;
+          
+          const chunk = groupAthletes.slice(currentIndex, currentIndex + groupSize);
+          currentIndex += groupSize;
+          
+          finalGroups[`${key} - G${i + 1}`] = chunk;
         }
       } else {
         finalGroups[key] = groupAthletes;

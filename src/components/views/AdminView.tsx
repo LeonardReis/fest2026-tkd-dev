@@ -1,16 +1,17 @@
 import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { CreditCard, FileText, Trash2 } from 'lucide-react';
-import { doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, deleteDoc, collection, addDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { handleFirestoreError, calculatePrice, calculateCashback, calculateBoards } from '../../utils';
-import { Registration, Athlete, Academy, UserProfile, OperationType } from '../../types';
+import { Registration, Athlete, Academy, UserProfile, OperationType, Transaction } from '../../types';
 import { User } from 'firebase/auth';
 import { Button, Card, cn } from '../ui';
 import { CompetitionView } from './CompetitionView';
+import { FinancialLedger } from './FinancialLedger';
 
-export function AdminView({ profile, user, registrations, athletes, academies, receipts, settings, onViewReceipt, key }: { profile: UserProfile | null; user: User | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; settings: any; onViewReceipt: (data: string) => void; key?: string }) {
-  const [adminTab, setAdminTab] = useState<'finance' | 'competition'>('finance');
+export function AdminView({ profile, user, registrations, athletes, academies, receipts, transactions, settings, onViewReceipt, key }: { profile: UserProfile | null; user: User | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; transactions: Transaction[]; settings: any; onViewReceipt: (data: string) => void; key?: string }) {
+  const [adminTab, setAdminTab] = useState<'finance' | 'ledger' | 'competition'>('finance');
 
   const academyStats = useMemo(() => academies.map(academy => {
     const academyRegs = registrations.filter(r => r.academyId === academy.id);
@@ -21,8 +22,26 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
     const paidGross = academyRegs.filter(r => r.paymentStatus === 'Pago').reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
     const paidCashback = academyRegs.filter(r => r.paymentStatus === 'Pago').reduce((sum, r) => sum + calculateCashback(r.categories, academy.name), 0);
     const paidNet = paidGross - paidCashback;
+    
+    const academyTransactions = transactions.filter(t => t.academyId === academy.id);
+    
+    // Créditos da Academia: A academia forneceu algo ao evento (Despesa para o Evento)
+    const academyCredits = academyTransactions.filter(t => t.type === 'EXPENSE' && t.category !== 'settlement').reduce((sum, t) => sum + t.amount, 0); 
+    // Débitos da Academia: A academia comprou algo do evento (Receita para o Evento)
+    const academyDebts = academyTransactions.filter(t => t.type === 'INCOME' && t.category !== 'settlement').reduce((sum, t) => sum + t.amount, 0); 
+    
+    const internalSettlements = academyTransactions.filter(t => t.category === 'settlement').reduce((sum, t) => {
+      // Settlements adjust the net directly to balance the books
+      // EXPENSE means Event paid Academy -> Academy credit goes DOWN (-)
+      // INCOME means Academy paid Event -> Academy credit goes UP (+)
+      if (t.type === 'EXPENSE') return sum - t.amount;
+      if (t.type === 'INCOME') return sum + t.amount;
+      return sum;
+    }, 0);
 
-    const pendingNet = totalNet - paidNet;
+    const transactionsNet = academyCredits - academyDebts + internalSettlements;
+
+    const pendingNet = totalNet - paidNet - transactionsNet;
 
     const totalBoards = academyRegs.filter(r => r.status === 'Confirmado').reduce((sum, r) => sum + calculateBoards(r.categories), 0);
     const totalConf = academyRegs.filter(r => r.status === 'Confirmado').length;
@@ -39,7 +58,20 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
       totalConf,
       pendingRegs: academyRegs.filter(r => r.paymentStatus === 'Pendente' || r.paymentStatus === 'Em Análise')
     };
-  }).filter(a => a.totalRegs > 0).sort((a, b) => b.totalConf - a.totalConf), [academies, registrations, settings]);
+  }).filter(a => a.totalRegs > 0).sort((a, b) => b.totalConf - a.totalConf), [academies, registrations, settings, transactions]);
+
+  const globalStats = useMemo(() => {
+    const totalPaidInscriptions = academyStats.reduce((sum, a) => sum + a.paidNet, 0);
+    const totalPendingInscriptions = academyStats.reduce((sum, a) => sum + a.pendingNet, 0);
+    const totalBoards = academyStats.reduce((sum, a) => sum + a.totalBoards, 0);
+    
+    const extraIncome = transactions.filter(t => t.type === 'INCOME' && t.category !== 'settlement').reduce((sum, t) => sum + t.amount, 0);
+    const extraExpense = transactions.filter(t => t.type === 'EXPENSE' && t.category !== 'settlement').reduce((sum, t) => sum + t.amount, 0);
+
+    const netProfit = totalPaidInscriptions + extraIncome - extraExpense;
+
+    return { totalPaidInscriptions, totalPendingInscriptions, totalBoards, extraIncome, extraExpense, netProfit };
+  }, [academyStats, transactions]);
 
   const handleApproveAll = async (academyId: string) => {
     if (!window.confirm('Aprovar todos os pagamentos pendentes desta academia?')) return;
@@ -65,6 +97,24 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
     }
   };
 
+  const handleUndoApproveAll = async (academyId: string) => {
+    if (!window.confirm('Atenção: Desfazer a liberação deste lote? As inscrições pagas voltarão para o status Pendente.')) return;
+    
+    const paidRegs = registrations.filter(r => r.academyId === academyId && r.paymentStatus === 'Pago');
+    
+    try {
+      await Promise.all(paidRegs.map(reg => 
+        updateDoc(doc(db, 'registrations', reg.id), {
+          paymentStatus: 'Pendente',
+          status: 'Pendente'
+        })
+      ));
+      alert('Liberação desfeita. Inscrições voltaram para Pendente.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'registrations');
+    }
+  };
+
   const handleRejectReceipt = async (receiptId: string, academyId: string) => {
     if (!window.confirm('Rejeitar este comprovante? As inscrições voltarão para Pendente.')) return;
     
@@ -84,6 +134,30 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
     }
   };
 
+  const handleSettleDebt = async (academyId: string, pendingNet: number) => {
+    if (!profile) return;
+    const isAcademyOwed = pendingNet < 0;
+    const amountToSettle = Math.abs(pendingNet);
+    const actionText = isAcademyOwed ? 'pagamento (saída) para liquidar o saldo que o evento deve à' : 'recebimento (entrada) do saldo que está pendente da';
+    
+    if (!window.confirm(`Deseja registrar o ${actionText} academia no valor de R$ ${amountToSettle.toFixed(2)}?`)) return;
+
+    try {
+      await addDoc(collection(db, 'transactions'), {
+        type: isAcademyOwed ? 'EXPENSE' : 'INCOME',
+        category: 'settlement',
+        amount: amountToSettle,
+        description: `Acerto financeiro (Baixa Interna)`,
+        date: new Date().toISOString(),
+        academyId,
+        createdBy: profile.uid
+      });
+      alert('Acerto financeiro registrado no caixa!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'transactions');
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
@@ -91,37 +165,61 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
           <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Administração</h2>
           <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Gestão financeira e operacional do evento</p>
         </div>
-        <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5">
+        <div className="flex bg-white/5 p-1 rounded-2xl border border-white/5 overflow-x-auto">
           <button 
             onClick={() => setAdminTab('finance')}
-            className={cn("px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all", adminTab === 'finance' ? "bg-red-600 text-white shadow-lg" : "text-stone-500 hover:text-white")}
+            className={cn("px-4 py-2 text-[10px] whitespace-nowrap font-black uppercase tracking-widest transition-all rounded-xl", adminTab === 'finance' ? "bg-red-600 text-white shadow-lg" : "text-stone-500 hover:text-white")}
           >
-            Financeiro
+            Inscrições (Academias)
+          </button>
+          <button 
+            onClick={() => setAdminTab('ledger')}
+            className={cn("px-4 py-2 text-[10px] whitespace-nowrap font-black uppercase tracking-widest transition-all rounded-xl", adminTab === 'ledger' ? "bg-red-600 text-white shadow-lg" : "text-stone-500 hover:text-white")}
+          >
+            Caixa / Extras
           </button>
           <button 
             onClick={() => setAdminTab('competition')}
-            className={cn("px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all", adminTab === 'competition' ? "bg-red-600 text-white shadow-lg" : "text-stone-500 hover:text-white")}
+            className={cn("px-4 py-2 text-[10px] whitespace-nowrap font-black uppercase tracking-widest transition-all rounded-xl", adminTab === 'competition' ? "bg-red-600 text-white shadow-lg" : "text-stone-500 hover:text-white")}
           >
             Competição
           </button>
         </div>
       </header>
 
-      {adminTab === 'finance' ? (
+      {adminTab === 'ledger' && (
+        <FinancialLedger transactions={transactions} academies={academies} profile={profile} />
+      )}
+
+      {adminTab === 'finance' && (
         <div className="space-y-10">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            <Card className="col-span-1 md:col-span-3 lg:col-span-4 p-8 border-red-500/20 bg-gradient-to-br from-red-600/10 to-transparent relative overflow-hidden">
+               <div className="relative z-10">
+                 <p className="text-[10px] font-black text-red-500 uppercase tracking-widest mb-2">Lucro Líquido Real (Caixa Atualizador)</p>
+                 <p className="text-5xl font-black text-white tracking-tighter italic">R$ {globalStats.netProfit.toFixed(2).replace('.', ',')}</p>
+                 <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest mt-4">
+                   Composição: (Inscrições: <span className="text-emerald-500">R$ {globalStats.totalPaidInscriptions.toFixed(0)}</span>) + (Ganhos Extra: <span className="text-emerald-500">R$ {globalStats.extraIncome.toFixed(0)}</span>) - (Despesas: <span className="text-red-500">R$ {globalStats.extraExpense.toFixed(0)}</span>)
+                 </p>
+               </div>
+            </Card>
+
             <Card className="p-8 border-white/5 bg-gradient-to-br from-emerald-600/10 to-transparent">
-              <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-2">Total Arrecadado (Líquido)</p>
-              <p className="text-4xl font-black text-white tracking-tighter italic">R$ {academyStats.reduce((sum, a) => sum + a.paidNet, 0).toFixed(2).replace('.', ',')}</p>
+              <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-2">Inscrições Quites (Líquido)</p>
+              <p className="text-3xl font-black text-white tracking-tighter italic">R$ {globalStats.totalPaidInscriptions.toFixed(2).replace('.', ',')}</p>
               <p className="text-[9px] text-stone-600 font-bold uppercase tracking-widest mt-2">Bruto: R$ {academyStats.reduce((sum, a) => sum + a.totalGross, 0).toFixed(0)} | CB: R$ {academyStats.reduce((sum, a) => sum + a.totalCashback, 0).toFixed(0)}</p>
             </Card>
             <Card className="p-8 border-white/5 bg-gradient-to-br from-amber-600/10 to-transparent">
-              <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-2">Total Pendente (Líquido)</p>
-              <p className="text-4xl font-black text-white tracking-tighter italic">R$ {academyStats.reduce((sum, a) => sum + a.pendingNet, 0).toFixed(2).replace('.', ',')}</p>
+              <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-2">Inscrições Pendentes (Líquido)</p>
+              <p className="text-3xl font-black text-white tracking-tighter italic">R$ {globalStats.totalPendingInscriptions.toFixed(2).replace('.', ',')}</p>
+            </Card>
+            <Card className="p-8 border-white/5 bg-gradient-to-br from-blue-600/10 to-transparent">
+              <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-2">Fluxo Caixa (Extras)</p>
+              <p className="text-3xl font-black text-white tracking-tighter italic">R$ {(globalStats.extraIncome - globalStats.extraExpense).toFixed(2).replace('.', ',')}</p>
             </Card>
             <Card className="p-8 border-white/5 bg-gradient-to-br from-orange-600/10 to-transparent">
-              <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-2">Total de Tábuas (Confirmadas)</p>
-              <p className="text-4xl font-black text-white tracking-tighter italic">{academyStats.reduce((sum, a) => sum + a.totalBoards, 0)}</p>
+              <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-2">Tábuas (Conf.)</p>
+              <p className="text-3xl font-black text-white tracking-tighter italic">{globalStats.totalBoards}</p>
             </Card>
           </div>
 
@@ -222,13 +320,35 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
                                  </Button>
                                </div>
                              )}
-                             {stat.pendingNet > 0 && (
+                             {stat.pendingRegs.length > 0 && (
                                <Button 
                                  variant="success" 
                                  className="px-6 py-2.5 text-[10px] font-black uppercase tracking-widest shadow-emerald-600/20"
                                  onClick={() => handleApproveAll(stat.id)}
                                >
                                  Liberar Lote
+                               </Button>
+                             )}
+                             {(stat.totalRegs - stat.pendingRegs.length) > 0 && (
+                               <Button 
+                                 variant="ghost" 
+                                 className="px-4 py-2 text-[9px] font-bold uppercase tracking-widest text-stone-500 hover:text-red-500 hover:bg-red-500/10"
+                                 onClick={() => handleUndoApproveAll(stat.id)}
+                               >
+                                 Desfazer Lote
+                               </Button>
+                             )}
+                             {stat.pendingNet !== 0 && (
+                               <Button 
+                                 onClick={() => handleSettleDebt(stat.id, stat.pendingNet)}
+                                 variant="primary"
+                                 className={cn(
+                                   "text-[9px] px-3 py-2 rounded-xl whitespace-nowrap",
+                                   stat.pendingNet < 0 ? "bg-stone-800 hover:bg-stone-700 text-amber-500" : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                 )}
+                                 title="Realizar um Lançamento Extra (Acerto Interno) no Caixa sem afetar o status dos atletas."
+                               >
+                                 {stat.pendingNet < 0 ? "PAGAR DÍVIDA R$" : "BAIXA MANUAL R$"} {Math.abs(stat.pendingNet).toFixed(2).replace('.', ',')}
                                </Button>
                              )}
                           </div>
@@ -241,7 +361,9 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
             </div>
           </Card>
         </div>
-      ) : (
+      )}
+      
+      {adminTab === 'competition' && (
         <CompetitionView registrations={registrations} athletes={athletes} academies={academies} user={user!} profile={profile} />
       )}
     </motion.div>
