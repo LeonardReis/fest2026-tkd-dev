@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { UserProfile, Academy, Registration, Athlete } from '../../types';
 import { Card, cn } from '../ui';
-import { SCHEDULE, getAgeCategory, calculatePrice, calculateBoards } from '../../utils';
+import { SCHEDULE, getAgeCategory, calculatePrice, calculateBoards, calculateCashback } from '../../utils';
 import { BELT_OPTIONS } from '../../constants';
 
 /* ─── Props ──────────────────────────────────────────────────────────────────── */
@@ -98,12 +98,22 @@ function AdminDashboard({ stats, academies, registrations, athletes, ranking, on
   const confirmed   = registrations.filter((r: Registration) => r.status === 'Confirmado').length;
   const inAnalysis  = registrations.filter((r: Registration) => r.paymentStatus === 'Em Análise').length;
   const pending     = registrations.filter((r: Registration) => r.paymentStatus === 'Pendente').length;
-  const totalRevenue = registrations
+  const totalGrossRevenue = registrations
     .filter((r: Registration) => r.paymentStatus === 'Pago' || r.paymentStatus === 'Em Análise')
     .reduce((sum: number, r: Registration) => {
       const academy = academies.find((a: Academy) => a.id === r.academyId);
       return sum + calculatePrice(r.categories, academy?.name);
     }, 0);
+
+  const totalCashback = registrations
+    .filter((r: Registration) => r.paymentStatus === 'Pago' || r.paymentStatus === 'Em Análise')
+    .reduce((sum: number, r: Registration) => {
+      const academy = academies.find((a: Academy) => a.id === r.academyId);
+      return sum + calculateCashback(r.categories, academy?.name);
+    }, 0);
+
+  const totalNetRevenue = totalGrossRevenue - totalCashback;
+
   const totalBoards = registrations
     .filter((r: Registration) => r.status === 'Confirmado')
     .reduce((sum: number, r: Registration) => sum + calculateBoards(r.categories), 0);
@@ -146,20 +156,23 @@ function AdminDashboard({ stats, academies, registrations, athletes, ranking, on
           )}
         </Card>
 
-        <Card className="p-6 border-white/5">
-          <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-1">Receita Prevista</p>
-          <p className="text-3xl font-black text-emerald-400 tracking-tighter italic">
-            R$ {totalRevenue.toFixed(2).replace('.', ',')}
-          </p>
-          <p className="text-[9px] text-stone-600 font-bold uppercase tracking-widest mt-2">Confirmados + Em Análise</p>
-          <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-[9px] text-stone-500 font-bold uppercase tracking-widest">Inscrições</p>
-              <p className="text-xl font-black text-white">{stats.registrations}</p>
+        <Card className="p-6 border-white/5 bg-gradient-to-br from-emerald-900/10 to-transparent">
+          <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-1">Receita Prevista (Líquida)</p>
+          <div className="flex items-baseline gap-2">
+            <p className="text-3xl font-black text-emerald-400 tracking-tighter italic">
+              R$ {totalNetRevenue.toFixed(2).replace('.', ',')}
+            </p>
+            <span className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">Líquido</span>
+          </div>
+          
+          <div className="mt-4 pt-4 border-t border-white/5 space-y-2">
+            <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-widest">
+              <span className="text-stone-500">Total Bruto:</span>
+              <span className="text-white">R$ {totalGrossRevenue.toFixed(2).replace('.', ',')}</span>
             </div>
-            <div>
-              <p className="text-[9px] text-stone-500 font-bold uppercase tracking-widest">Pendentes</p>
-              <p className={cn("text-xl font-black", pending > 0 ? "text-amber-400" : "text-white")}>{pending}</p>
+            <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-widest">
+              <span className="text-stone-500">Cashback (Mestres):</span>
+              <span className="text-red-400">- R$ {totalCashback.toFixed(2).replace('.', ',')}</span>
             </div>
           </div>
         </Card>
@@ -177,7 +190,9 @@ function AdminDashboard({ stats, academies, registrations, athletes, ranking, on
               const acRegs  = registrations.filter((r: Registration) => r.academyId === academy.id);
               const acConf  = acRegs.filter((r: Registration) => r.status === 'Confirmado').length;
               const acAths  = athletes.filter((a: Athlete) => a.academyId === academy.id).length;
-              const acRev   = acRegs.filter((r: Registration) => r.paymentStatus === 'Pago').reduce((s: number, r: Registration) => s + calculatePrice(r.categories, academy.name), 0);
+              const acRevGross = acRegs.filter((r: Registration) => r.paymentStatus === 'Pago').reduce((s: number, r: Registration) => s + calculatePrice(r.categories, academy.name), 0);
+              const acCashback = acRegs.filter((r: Registration) => r.paymentStatus === 'Pago').reduce((s: number, r: Registration) => s + calculateCashback(r.categories, academy.name), 0);
+              const acRevNet = acRevGross - acCashback;
               return (
                 <div key={academy.id} className="flex items-center gap-4 px-6 py-4 hover:bg-white/[0.03] transition-colors">
                   <div className="flex-1 min-w-0">
@@ -189,9 +204,12 @@ function AdminDashboard({ stats, academies, registrations, athletes, ranking, on
                     <Chip label="Inscritos" value={acRegs.length} />
                     <Chip label="Confirmados" value={acConf} highlight={acConf > 0} />
                     <Chip label="Tábuas" value={acRegs.filter(r => r.status === 'Confirmado').reduce((s, r) => s + calculateBoards(r.categories), 0)} />
-                    <span className="text-[10px] font-black text-emerald-400 w-20 text-right">
-                      {acRev > 0 ? `R$\u00a0${acRev.toFixed(0)}` : '—'}
-                    </span>
+                    <div className="w-24 text-right">
+                      <p className="text-[8px] font-bold text-stone-600 uppercase tracking-widest">Líquido</p>
+                      <p className="text-[10px] font-black text-emerald-400">
+                        {acRevNet > 0 ? `R$\u00a0${acRevNet.toFixed(0)}` : '—'}
+                      </p>
+                    </div>
                   </div>
                 </div>
               );
@@ -251,6 +269,28 @@ function AcademyDashboard({ profile, academies, registrations, athletes, ranking
         <KpiCard label="Inscritos" value={myRegs.length} icon={<Target className="w-5 h-5" />} color="amber" />
         <KpiCard label="Confirmados" value={myConfirmed} icon={<CheckCircle2 className="w-5 h-5" />} color="green" />
         <KpiCard label="Minhas Tábuas" value={myBoards} icon={<Target className="w-5 h-5" />} color="orange" />
+      </div>
+
+      {/* Financeiro do Mestre */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="p-6 border-white/5 bg-white/[0.02]">
+           <p className="text-[9px] font-black text-stone-500 uppercase tracking-widest mb-1">Total das Inscrições</p>
+           <p className="text-2xl font-black text-white tracking-tighter">
+             R$ {myRegs.reduce((s, r) => s + calculatePrice(r.categories, myAcademy?.name), 0).toFixed(2).replace('.', ',')}
+           </p>
+        </Card>
+        <Card className="p-6 border-white/5 bg-amber-500/5">
+           <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest mb-1">Cashback (Mestre)</p>
+           <p className="text-2xl font-black text-amber-500 tracking-tighter">
+             R$ {myRegs.reduce((s, r) => s + calculateCashback(r.categories, myAcademy?.name), 0).toFixed(2).replace('.', ',')}
+           </p>
+        </Card>
+        <Card className="p-6 border-emerald-500/20 bg-emerald-500/10">
+           <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Valor Líquido</p>
+           <p className="text-2xl font-black text-emerald-400 tracking-tighter">
+             R$ {(myRegs.reduce((s, r) => s + calculatePrice(r.categories, myAcademy?.name), 0) - myRegs.reduce((s, r) => s + calculateCashback(r.categories, myAcademy?.name), 0)).toFixed(2).replace('.', ',')}
+           </p>
+        </Card>
       </div>
 
       {/* Progresso + Ranking */}

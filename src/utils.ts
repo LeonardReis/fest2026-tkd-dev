@@ -231,8 +231,7 @@ export const DEFAULT_PRICE_CONFIG: PriceConfig = {
 };
 
 /**
- * Calcula o preço da inscrição com base nas categorias selecionadas e na academia.
- * Aplica desconto de R$ 10,00 para academias do projeto UNIÃO LOPES TAEKWONDO.
+ * Calcula o preço bruto da inscrição com base nas categorias selecionadas e na academia.
  */
 export function calculatePrice(
   categories: string[], 
@@ -242,14 +241,19 @@ export function calculatePrice(
   if (categories.length === 0) return 0;
   
   const discountAcademies = ['Djalma Johnsson', 'CCM Alfredo Chaves'];
-  const hasDiscount = academyName && discountAcademies.includes(academyName);
-  const discountAmount = hasDiscount ? 10 : 0;
+  const hasSocialDiscount = academyName && discountAcademies.includes(academyName);
+  const discountAmount = hasSocialDiscount ? 10 : 0;
 
   let total = 0;
   
   if (categories.includes('Kyorugui') || categories.includes('Poomsae')) {
     // O valor base (R$ 90) cobre Kyorugui, Poomsae ou ambos.
-    total += Math.max(0, config.kyoruguiPoomsae - discountAmount);
+    total += config.kyoruguiPoomsae;
+    
+    // Para projetos sociais, o desconto é direto no preço bruto.
+    if (hasSocialDiscount) {
+      total -= discountAmount;
+    }
   }
   
   if (categories.includes('Kyopa (3 tábuas)')) {
@@ -261,6 +265,28 @@ export function calculatePrice(
   }
   
   return total;
+}
+
+/**
+ * Calcula o valor do Cashback (repasse) que o mestre retém.
+ * Regra: R$ 10,00 por inscrição que contenha Luta ou Poomsae, 
+ * exceto para projetos sociais que já possuem o desconto na base.
+ */
+export function calculateCashback(
+  categories: string[],
+  academyName?: string
+): number {
+  const discountAcademies = ['Djalma Johnsson', 'CCM Alfredo Chaves'];
+  const hasSocialDiscount = academyName && discountAcademies.includes(academyName);
+  
+  // Se já tem desconto social, não tem cashback extra (já foi descontado no bruto).
+  if (hasSocialDiscount) return 0;
+
+  if (categories.includes('Kyorugui') || categories.includes('Poomsae')) {
+    return 10;
+  }
+
+  return 0;
 }
 
 /**

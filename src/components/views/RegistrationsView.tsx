@@ -4,7 +4,7 @@ import { Plus, AlertCircle, Clock, Copy, CheckCircle2, Trash2, Search, Users, Wa
 import { QRCodeSVG } from 'qrcode.react';
 import { collection, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { handleFirestoreError, calculatePrice, generatePix, formatWhatsAppNumber, getAgeCategory } from '../../utils';
+import { handleFirestoreError, calculatePrice, calculateCashback, generatePix, formatWhatsAppNumber, getAgeCategory } from '../../utils';
 import { Registration, Athlete, Academy, UserProfile, OperationType } from '../../types';
 import { Button, Card, Select, cn } from '../ui';
 
@@ -175,19 +175,24 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
   }, [profile, registrations, searchTerm, selectedAcademyId, athletes, academies]);
 
   const overviewStats = useMemo(() => {
-    let totalPaid = 0;
-    let totalPending = 0;
+    let totalGrossPaid = 0;
+    let totalGrossPending = 0;
+    let totalCashbackPaid = 0;
+    let totalCashbackPending = 0;
     let paidCount = 0;
 
     filteredRegs.forEach(reg => {
       const academy = academies.find(a => a.id === reg.academyId);
       const price = calculatePrice(reg.categories, academy?.name);
+      const cb = calculateCashback(reg.categories, academy?.name);
       
       if (reg.paymentStatus === 'Pago') {
-        totalPaid += price;
+        totalGrossPaid += price;
+        totalCashbackPaid += cb;
         paidCount++;
       } else {
-        totalPending += price;
+        totalGrossPending += price;
+        totalCashbackPending += cb;
       }
     });
 
@@ -195,8 +200,12 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
 
     return {
       totalInscriptions: filteredRegs.length,
-      totalPaid,
-      totalPending,
+      totalPaid: totalGrossPaid - totalCashbackPaid,
+      totalPending: totalGrossPending - totalCashbackPending,
+      totalGrossPaid,
+      totalGrossPending,
+      totalCashbackPaid,
+      totalCashbackPending,
       conversionRate
     };
   }, [filteredRegs, academies]);
@@ -274,12 +283,13 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
               <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
                 <Wallet className="w-5 h-5 text-emerald-400" />
               </div>
-              <div>
-                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Arrecadação (Pago)</p>
+              <div className="flex-1">
+                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Arrecadação Líquida</p>
                 <p className="text-2xl font-black text-emerald-400 tabular-nums">
                   <span className="text-sm text-emerald-500/50 mr-1">R$</span> 
                   {overviewStats.totalPaid.toFixed(2).replace('.', ',')}
                 </p>
+                <p className="text-[8px] text-stone-600 font-bold uppercase tracking-widest">Bruto: {overviewStats.totalGrossPaid.toFixed(0)} | CB: {overviewStats.totalCashbackPaid.toFixed(0)}</p>
               </div>
             </div>
           </Card>
@@ -289,12 +299,13 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
               <div className="p-3 bg-amber-500/10 rounded-xl border border-amber-500/20">
                 <Clock className="w-5 h-5 text-amber-400" />
               </div>
-              <div>
-                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">A Receber</p>
+              <div className="flex-1">
+                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Líquido a Receber</p>
                 <p className="text-2xl font-black text-amber-400 tabular-nums">
                   <span className="text-sm text-amber-500/50 mr-1">R$</span> 
                   {overviewStats.totalPending.toFixed(2).replace('.', ',')}
                 </p>
+                <p className="text-[8px] text-stone-600 font-bold uppercase tracking_widest">Bruto: {overviewStats.totalGrossPending.toFixed(0)} | CB: {overviewStats.totalCashbackPending.toFixed(0)}</p>
               </div>
             </div>
           </Card>
@@ -597,7 +608,11 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
       {!isAdding && academiesWithPendingOrAnalysis.map(academy => {
         const pendingRegs = registrations.filter(r => r.academyId === academy.id && r.paymentStatus === 'Pendente');
         const analysisRegs = registrations.filter(r => r.academyId === academy.id && r.paymentStatus === 'Em Análise');
-        const totalPending = pendingRegs.reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
+        
+        const totalGross = pendingRegs.reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
+        const totalCashback = pendingRegs.reduce((sum, r) => sum + calculateCashback(r.categories, academy.name), 0);
+        const totalNet = totalGross - totalCashback;
+
         const academyReceipts = receipts.filter(r => r.academyId === academy.id);
 
         return (
@@ -632,7 +647,9 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
                               <p className="text-[8px] text-stone-500 font-bold uppercase tracking-widest">{reg.categories.join(' + ')}</p>
                             </div>
                           </div>
-                          <p className="text-xs font-black text-white tabular-nums tracking-tighter">R$ {calculatePrice(reg.categories, academy.name).toFixed(2).replace('.', ',')}</p>
+                          <p className="text-xs font-black text-white tabular-nums tracking-tighter">
+                            R$ {(calculatePrice(reg.categories, academy.name) - calculateCashback(reg.categories, academy.name)).toFixed(2).replace('.', ',')}
+                          </p>
                         </div>
                       );
                     })}
@@ -640,9 +657,15 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
                 </div>
 
                 {pendingRegs.length > 0 && (
-                  <div className="mt-auto">
-                    <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-1 ml-1">Total deste Lote</p>
-                    <p className="text-5xl font-black text-white tracking-tighter italic">R$ {totalPending.toFixed(2).replace('.', ',')}</p>
+                  <div className="mt-auto space-y-1">
+                    <div className="flex items-baseline justify-between mb-2">
+                      <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Total Líquido</p>
+                      <div className="text-right">
+                        <p className="text-[10px] text-stone-600 font-bold uppercase tracking-widest">Bruto: R$ {totalGross.toFixed(0)}</p>
+                        <p className="text-[10px] text-amber-500 font-bold uppercase tracking-widest">Cashback: - R$ {totalCashback.toFixed(0)}</p>
+                      </div>
+                    </div>
+                    <p className="text-5xl font-black text-white tracking-tighter italic">R$ {totalNet.toFixed(2).replace('.', ',')}</p>
                   </div>
                 )}
               </div>
@@ -654,7 +677,7 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
                     <div className="relative z-10 flex flex-col items-center gap-4">
                       <QRCodeSVG 
                         value={generatePix(
-                          totalPending, 
+                          totalNet, 
                           `Lote ${academy.name.substring(0, 10)}`, 
                           academy.id.substring(0, 5)
                         )} 
@@ -677,7 +700,7 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
                             type="text" 
                             readOnly 
                             value={generatePix(
-                              totalPending, 
+                              totalNet, 
                               `Lote ${academy.name.substring(0, 10)}`, 
                               academy.id.substring(0, 5)
                             )} 
@@ -688,7 +711,7 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
                             className="shrink-0 px-4 py-3 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 group/copy"
                             onClick={() => {
                               navigator.clipboard.writeText(generatePix(
-                                totalPending, 
+                                totalNet, 
                                 `Lote ${academy.name.substring(0, 10)}`, 
                                 academy.id.substring(0, 5)
                               ));

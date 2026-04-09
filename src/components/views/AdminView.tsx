@@ -3,7 +3,7 @@ import { motion } from 'motion/react';
 import { CreditCard, FileText, Trash2 } from 'lucide-react';
 import { doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
-import { handleFirestoreError, calculatePrice, calculateBoards } from '../../utils';
+import { handleFirestoreError, calculatePrice, calculateCashback, calculateBoards } from '../../utils';
 import { Registration, Athlete, Academy, UserProfile, OperationType } from '../../types';
 import { User } from 'firebase/auth';
 import { Button, Card, cn } from '../ui';
@@ -14,18 +14,27 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
 
   const academyStats = useMemo(() => academies.map(academy => {
     const academyRegs = registrations.filter(r => r.academyId === academy.id);
-    const totalValue = academyRegs.reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
-    const paidValue = academyRegs.filter(r => r.paymentStatus === 'Pago').reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
-    const pendingValue = totalValue - paidValue;
+    const totalGross = academyRegs.reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
+    const totalCashback = academyRegs.reduce((sum, r) => sum + calculateCashback(r.categories, academy.name), 0);
+    const totalNet = totalGross - totalCashback;
+
+    const paidGross = academyRegs.filter(r => r.paymentStatus === 'Pago').reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
+    const paidCashback = academyRegs.filter(r => r.paymentStatus === 'Pago').reduce((sum, r) => sum + calculateCashback(r.categories, academy.name), 0);
+    const paidNet = paidGross - paidCashback;
+
+    const pendingNet = totalNet - paidNet;
+
     const totalBoards = academyRegs.filter(r => r.status === 'Confirmado').reduce((sum, r) => sum + calculateBoards(r.categories), 0);
     const totalConf = academyRegs.filter(r => r.status === 'Confirmado').length;
     
     return {
       ...academy,
       totalRegs: academyRegs.length,
-      totalValue,
-      paidValue,
-      pendingValue,
+      totalGross,
+      totalCashback,
+      totalNet,
+      paidNet,
+      pendingNet,
       totalBoards,
       totalConf,
       pendingRegs: academyRegs.filter(r => r.paymentStatus === 'Pendente' || r.paymentStatus === 'Em Análise')
@@ -102,12 +111,13 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
         <div className="space-y-10">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card className="p-8 border-white/5 bg-gradient-to-br from-emerald-600/10 to-transparent">
-              <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-2">Total Arrecadado</p>
-              <p className="text-4xl font-black text-white tracking-tighter italic">R$ {academyStats.reduce((sum, a) => sum + a.paidValue, 0).toFixed(2).replace('.', ',')}</p>
+              <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest mb-2">Total Arrecadado (Líquido)</p>
+              <p className="text-4xl font-black text-white tracking-tighter italic">R$ {academyStats.reduce((sum, a) => sum + a.paidNet, 0).toFixed(2).replace('.', ',')}</p>
+              <p className="text-[9px] text-stone-600 font-bold uppercase tracking-widest mt-2">Bruto: R$ {academyStats.reduce((sum, a) => sum + a.totalGross, 0).toFixed(0)} | CB: R$ {academyStats.reduce((sum, a) => sum + a.totalCashback, 0).toFixed(0)}</p>
             </Card>
             <Card className="p-8 border-white/5 bg-gradient-to-br from-amber-600/10 to-transparent">
-              <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-2">Total Pendente</p>
-              <p className="text-4xl font-black text-white tracking-tighter italic">R$ {academyStats.reduce((sum, a) => sum + a.pendingValue, 0).toFixed(2).replace('.', ',')}</p>
+              <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-2">Total Pendente (Líquido)</p>
+              <p className="text-4xl font-black text-white tracking-tighter italic">R$ {academyStats.reduce((sum, a) => sum + a.pendingNet, 0).toFixed(2).replace('.', ',')}</p>
             </Card>
             <Card className="p-8 border-white/5 bg-gradient-to-br from-orange-600/10 to-transparent">
               <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-2">Total de Tábuas (Confirmadas)</p>
@@ -156,10 +166,10 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
                 <thead>
                   <tr className="bg-white/5 border-b border-white/5">
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Academia</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Responsável</th>
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Atletas</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Pendente</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Pago</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">CB Total</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Pendente (Liq)</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Pago (Liq)</th>
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Tábuas</th>
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em] text-center">Ações</th>
                   </tr>
@@ -174,18 +184,18 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
                            <p className="text-[9px] text-stone-500 font-bold uppercase tracking-widest mt-1 italic">{stat.contact}</p>
                         </td>
                         <td className="px-8 py-6">
-                           <p className="text-xs font-bold text-stone-300 uppercase tracking-tight">{stat.coach}</p>
-                        </td>
-                        <td className="px-8 py-6">
                            <span className="px-2.5 py-1 bg-white/5 border border-white/10 rounded-lg text-[10px] font-black text-white">
                              {stat.totalRegs}
                            </span>
                         </td>
+                        <td className="px-8 py-6 text-amber-500/50 font-bold tabular-nums text-xs">
+                           R$ {stat.totalCashback.toFixed(0)}
+                        </td>
                         <td className="px-8 py-6 text-amber-500 font-black tabular-nums tracking-tighter">
-                           R$ {stat.pendingValue.toFixed(2).replace('.', ',')}
+                           R$ {stat.pendingNet.toFixed(2).replace('.', ',')}
                         </td>
                         <td className="px-8 py-6 text-emerald-500 font-black tabular-nums tracking-tighter">
-                           R$ {stat.paidValue.toFixed(2).replace('.', ',')}
+                           R$ {stat.paidNet.toFixed(2).replace('.', ',')}
                         </td>
                         <td className="px-8 py-6">
                            <span className={cn("px-2.5 py-1 rounded-lg text-[10px] font-black", stat.totalBoards > 0 ? "bg-orange-500/10 border border-orange-500/20 text-orange-500" : "bg-white/5 border border-white/10 text-stone-500")}>
@@ -212,7 +222,7 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
                                  </Button>
                                </div>
                              )}
-                             {stat.pendingValue > 0 && (
+                             {stat.pendingNet > 0 && (
                                <Button 
                                  variant="success" 
                                  className="px-6 py-2.5 text-[10px] font-black uppercase tracking-widest shadow-emerald-600/20"
