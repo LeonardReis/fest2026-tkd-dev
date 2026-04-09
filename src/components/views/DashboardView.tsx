@@ -117,7 +117,11 @@ function AdminDashboard({ stats, academies, registrations, athletes, ranking, on
   const totalBoards = registrations
     .filter((r: Registration) => r.status === 'Confirmado')
     .reduce((sum: number, r: Registration) => sum + calculateBoards(r.categories), 0);
-  const confirmRate = stats.registrations > 0 ? Math.round((confirmed / stats.registrations) * 100) : 0;
+
+  // ✅ Fonte de verdade: usa os arrays como referência, não o objeto stats derivado
+  const totalRegistrations = registrations.length;
+  const totalAthletes = athletes.length;
+  const confirmRate = totalRegistrations > 0 ? Math.round((confirmed / totalRegistrations) * 100) : 0;
 
   const sortedAcademies = useMemo(() => {
     return [...academies].sort((a, b) => {
@@ -132,7 +136,7 @@ function AdminDashboard({ stats, academies, registrations, athletes, ranking, on
       {/* KPIs Globais */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard label="Academias" value={stats.academies} icon={<School className="w-5 h-5" />} color="blue" />
-        <KpiCard label="Atletas" value={stats.athletes} icon={<Users className="w-5 h-5" />} color="emerald" />
+        <KpiCard label="Atletas" value={totalAthletes} icon={<Users className="w-5 h-5" />} color="emerald" />
         <KpiCard label="Confirmados" value={confirmed} icon={<CheckCircle2 className="w-5 h-5" />} color="green" />
         <KpiCard label="Total Tábuas" value={totalBoards} icon={<Target className="w-5 h-5" />} color="orange" />
       </div>
@@ -146,7 +150,7 @@ function AdminDashboard({ stats, academies, registrations, athletes, ranking, on
           </div>
           <ProgressBar value={confirmRate} color="emerald" />
           <p className="text-[9px] text-stone-600 font-bold uppercase tracking-widest mt-3">
-            {confirmed} confirmados de {stats.registrations} inscrições
+            {confirmed} confirmados de {totalRegistrations} inscrições
           </p>
           {pending > 0 && (
             <div className="mt-4 flex items-center gap-2 text-amber-500">
@@ -604,21 +608,53 @@ function StepItem({ done, label, description }: { done: boolean; label: string; 
 }
 
 function BeltDistributionCard({ athletes, title }: { athletes: Athlete[]; title: string }) {
-  const distribution = useMemo(() => {
+  const { distribution, unmappedCount } = useMemo(() => {
     const map: Record<string, number> = {};
-    athletes.forEach(a => {
-      map[a.belt] = (map[a.belt] || 0) + 1;
+    athletes.forEach(a => { map[a.belt] = (map[a.belt] || 0) + 1; });
+
+    // Normalização tolerante: ignora diferença entre ° e º, espaços extras e case
+    const normalize = (s: string) =>
+      s.normalize('NFC').toLowerCase().replace(/°/g, 'º').replace(/\s+/g, ' ').trim();
+
+    const beltNormMap: Record<string, string> = {};
+    BELT_OPTIONS.forEach(opt => { beltNormMap[normalize(opt.value)] = opt.value; });
+
+    const canonicalMap: Record<string, number> = {};
+    let unmapped = 0;
+
+    Object.entries(map).forEach(([rawBelt, count]) => {
+      const canonical = beltNormMap[normalize(rawBelt)];
+      if (canonical) {
+        canonicalMap[canonical] = (canonicalMap[canonical] || 0) + count;
+      } else {
+        unmapped += count;
+        console.warn(`[BeltDistribution] Faixa não reconhecida: "${rawBelt}" — ${count} atleta(s)`);
+      }
     });
 
-    // Ordena baseado na ordem oficial das BELT_OPTIONS
-    return BELT_OPTIONS
-      .filter(opt => map[opt.value])
+    const dist = BELT_OPTIONS
+      .filter(opt => canonicalMap[opt.value])
       .map(opt => ({
         belt: opt.value,
-        count: map[opt.value],
-        percentage: Math.round((map[opt.value] / athletes.length) * 100)
+        count: canonicalMap[opt.value],
+        percentage: Math.round((canonicalMap[opt.value] / athletes.length) * 100),
+        isUnmapped: false,
       }));
+
+    // Categoria "Outros" para faixas fora do padrão — nunca descarta silenciosamente
+    if (unmapped > 0) {
+      dist.push({
+        belt: 'Outros (verificar)',
+        count: unmapped,
+        percentage: Math.round((unmapped / athletes.length) * 100),
+        isUnmapped: true,
+      });
+    }
+
+    return { distribution: dist, unmappedCount: unmapped };
   }, [athletes]);
+
+  const totalInDistribution = distribution.reduce((s, i) => s + i.count, 0);
 
   const getBeltStyles = (belt: string) => {
     if (belt.includes('Branca')) return 'bg-white text-black';
@@ -629,6 +665,7 @@ function BeltDistributionCard({ athletes, title }: { athletes: Athlete[]; title:
     if (belt.includes('Azul')) return 'bg-blue-600 text-white';
     if (belt.includes('Vermelha') || belt.includes('Bordô')) return 'bg-red-600 text-white';
     if (belt.includes('Preta')) return 'bg-stone-950 text-white border-white/20';
+    if (belt.includes('verificar')) return 'bg-orange-900/60 text-orange-400 border-orange-500/40';
     return 'bg-white/10 text-white';
   };
 
@@ -641,7 +678,21 @@ function BeltDistributionCard({ athletes, title }: { athletes: Athlete[]; title:
           <h3 className="text-xl font-black text-white italic uppercase tracking-tighter">{title}</h3>
           <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest">Distribuição por Graduação</p>
         </div>
-        <TrendingUp className="w-5 h-5 text-stone-600" />
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <p className="text-[8px] font-bold text-stone-600 uppercase tracking-widest">Total na tabela</p>
+            <p className={cn(
+              "text-lg font-black tracking-tighter",
+              totalInDistribution === athletes.length ? 'text-emerald-400' : 'text-orange-400'
+            )}>
+              {totalInDistribution}
+              {totalInDistribution !== athletes.length && (
+                <span className="text-[9px] text-stone-500 font-bold ml-1">/ {athletes.length}</span>
+              )}
+            </p>
+          </div>
+          <TrendingUp className="w-5 h-5 text-stone-600" />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -655,7 +706,7 @@ function BeltDistributionCard({ athletes, title }: { athletes: Athlete[]; title:
                 {item.belt}
               </span>
               <div className="text-right">
-                <span className="text-sm font-black text-white tracking-tighter">{item.count}</span>
+                <span className={cn("text-sm font-black tracking-tighter", item.isUnmapped ? 'text-orange-400' : 'text-white')}>{item.count}</span>
                 <span className="text-[9px] text-stone-500 font-bold ml-1 uppercase">atl.</span>
               </div>
             </div>
@@ -663,13 +714,25 @@ function BeltDistributionCard({ athletes, title }: { athletes: Athlete[]; title:
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${item.percentage}%` }}
-                className={cn("absolute inset-y-0 left-0 rounded-full", getBeltStyles(item.belt).split(' ')[0])}
+                className={cn(
+                  "absolute inset-y-0 left-0 rounded-full",
+                  item.isUnmapped ? 'bg-orange-500' : getBeltStyles(item.belt).split(' ')[0]
+                )}
               />
             </div>
             <p className="text-[8px] text-stone-600 font-bold uppercase tracking-widest text-right">{item.percentage}% do total</p>
           </div>
         ))}
       </div>
+
+      {unmappedCount > 0 && (
+        <div className="mt-6 pt-4 border-t border-orange-500/20 flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+          <p className="text-[9px] font-black text-orange-400 uppercase tracking-widest">
+            {unmappedCount} atleta(s) com faixa não reconhecida — verifique o cadastro no Firestore
+          </p>
+        </div>
+      )}
     </Card>
   );
 }

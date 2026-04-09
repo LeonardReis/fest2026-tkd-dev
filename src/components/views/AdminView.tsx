@@ -49,6 +49,8 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
     return {
       ...academy,
       totalRegs: academyRegs.length,
+      // ✅ Atletas únicos: usa Set de IDs para não inflar com múltiplas modalidades
+      uniqueAthletes: new Set(academyRegs.map(r => r.athleteId)).size,
       totalGross,
       totalCashback,
       totalNet,
@@ -264,7 +266,8 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
                 <thead>
                   <tr className="bg-white/5 border-b border-white/5">
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Academia</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Atletas</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Atletas único</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Inscrições</th>
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">CB Total</th>
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Pendente (Liq)</th>
                     <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Pago (Liq)</th>
@@ -283,6 +286,11 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
                         </td>
                         <td className="px-8 py-6">
                            <span className="px-2.5 py-1 bg-white/5 border border-white/10 rounded-lg text-[10px] font-black text-white">
+                             {stat.uniqueAthletes}
+                           </span>
+                        </td>
+                        <td className="px-8 py-6">
+                           <span className="px-2.5 py-1 bg-blue-500/10 border border-blue-500/20 rounded-lg text-[10px] font-black text-blue-400">
                              {stat.totalRegs}
                            </span>
                         </td>
