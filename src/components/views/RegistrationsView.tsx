@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Plus, AlertCircle, Clock, Copy, CheckCircle2, Trash2, Search } from 'lucide-react';
+import { Plus, AlertCircle, Clock, Copy, CheckCircle2, Trash2, Search, Users, Wallet, TrendingUp } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { collection, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
@@ -19,6 +19,7 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
   const [uploadingAcademyId, setUploadingAcademyId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedAcademyId, setSelectedAcademyId] = useState('');
   
   React.useEffect(() => {
     if (initialAthleteId) {
@@ -132,23 +133,73 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
       registrations.some(r => r.academyId === a.id && (r.paymentStatus === 'Pendente' || r.paymentStatus === 'Em Análise'))
     );
 
+  const academiesWithRegistrations = useMemo(() => {
+    const registeredIds = new Set(registrations.map(r => r.academyId));
+    return academies.filter(a => registeredIds.has(a.id));
+  }, [registrations, academies]);
+
   const filteredRegs = useMemo(() => {
     const list = profile?.role === 'admin'
       ? registrations
       : registrations.filter(r => r.academyId === profile?.academyId);
     
-    if (!searchTerm) return list;
+    let result = selectedAcademyId 
+      ? list.filter(r => r.academyId === selectedAcademyId)
+      : list;
 
-    const search = searchTerm.toLowerCase();
-    return list.filter(reg => {
-      const athlete = athletes.find(a => a.id === reg.athleteId);
-      const academy = academies.find(a => a.id === reg.academyId);
-      return (
-        athlete?.name.toLowerCase().includes(search) || 
-        academy?.name.toLowerCase().includes(search)
-      );
+    if (searchTerm) {
+      const normalize = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const search = normalize(searchTerm);
+      result = result.filter(reg => {
+        const athlete = athletes.find(a => a.id === reg.athleteId);
+        const academy = academies.find(a => a.id === reg.academyId);
+        return (
+          normalize(athlete?.name || '').includes(search) || 
+          normalize(academy?.name || '').includes(search)
+        );
+      });
+    }
+
+    const statusWeight = {
+      'Pago': 0,
+      'Em Análise': 1,
+      'Pendente': 2
+    };
+
+    return [...result].sort((a, b) => {
+      const weightA = statusWeight[a.paymentStatus as keyof typeof statusWeight] ?? 3;
+      const weightB = statusWeight[b.paymentStatus as keyof typeof statusWeight] ?? 3;
+      if (weightA !== weightB) return weightA - weightB;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [profile, registrations, searchTerm, athletes, academies]);
+  }, [profile, registrations, searchTerm, selectedAcademyId, athletes, academies]);
+
+  const overviewStats = useMemo(() => {
+    let totalPaid = 0;
+    let totalPending = 0;
+    let paidCount = 0;
+
+    filteredRegs.forEach(reg => {
+      const academy = academies.find(a => a.id === reg.academyId);
+      const price = calculatePrice(reg.categories, academy?.name);
+      
+      if (reg.paymentStatus === 'Pago') {
+        totalPaid += price;
+        paidCount++;
+      } else {
+        totalPending += price;
+      }
+    });
+
+    const conversionRate = filteredRegs.length > 0 ? Math.round((paidCount / filteredRegs.length) * 100) : 0;
+
+    return {
+      totalInscriptions: filteredRegs.length,
+      totalPaid,
+      totalPending,
+      conversionRate
+    };
+  }, [filteredRegs, academies]);
 
   const handlePaymentStatus = async (regId: string, currentStatus: string) => {
     try {
@@ -171,6 +222,20 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
         </div>
         {!isAdding && (
           <div className="flex flex-col sm:flex-row items-center gap-4">
+            {profile?.role === 'admin' && (
+              <div className="w-full sm:w-48">
+                <select 
+                  value={selectedAcademyId}
+                  onChange={e => setSelectedAcademyId(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl py-2.5 px-4 text-xs text-white focus:outline-none focus:border-red-500/50 appearance-none cursor-pointer transition-all"
+                >
+                  <option value="" className="bg-stone-900">Todas Academias</option>
+                  {academiesWithRegistrations.map(a => (
+                    <option key={a.id} value={a.id} className="bg-stone-900">{a.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="relative group/search w-full sm:w-64">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-500 group-focus-within/search:text-red-500 transition-colors" />
               <input 
@@ -190,158 +255,63 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
         )}
       </header>
 
-      {!isAdding && academiesWithPendingOrAnalysis.map(academy => {
-        const pendingRegs = registrations.filter(r => r.academyId === academy.id && r.paymentStatus === 'Pendente');
-        const analysisRegs = registrations.filter(r => r.academyId === academy.id && r.paymentStatus === 'Em Análise');
-        const totalPending = pendingRegs.reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
-        const academyReceipts = receipts.filter(r => r.academyId === academy.id);
-
-        return (
-          <Card key={academy.id} className="p-0 border-white/5 bg-gradient-to-br from-amber-600/5 to-transparent overflow-hidden">
-            <div className="p-8 flex flex-col lg:flex-row gap-10 items-start justify-between">
-              <div className="flex-1 w-full flex flex-col h-full">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 bg-amber-500/10 rounded-xl border border-amber-500/20">
-                    <AlertCircle className="w-6 h-6 text-amber-500" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-black text-white uppercase tracking-tighter italic">
-                      {pendingRegs.length > 0 ? "Aguardando Pagamento" : "Em Análise de Comprovante"}
-                    </h3>
-                    <p className="text-[10px] text-amber-500/60 font-black uppercase tracking-[0.2em]">{academy.name}</p>
-                  </div>
-                </div>
-
-                <div className="flex-1 bg-black/20 rounded-2xl border border-white/5 p-4 mb-6">
-                  <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-4 ml-1">Atletas neste lote</p>
-                  <div className="space-y-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-                    {[...pendingRegs, ...analysisRegs].map(reg => {
-                      const athlete = athletes.find(a => a.id === reg.athleteId);
-                      return (
-                        <div key={reg.id} className="flex justify-between items-center group/item p-2 hover:bg-white/5 rounded-xl transition-colors">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center border border-white/5">
-                              <span className="text-xs font-black text-white">{athlete?.name.charAt(0)}</span>
-                            </div>
-                            <div>
-                              <p className="text-xs font-bold text-white uppercase tracking-tight">{athlete?.name}</p>
-                              <p className="text-[8px] text-stone-500 font-bold uppercase tracking-widest">{reg.categories.join(' + ')}</p>
-                            </div>
-                          </div>
-                          <p className="text-xs font-black text-white tabular-nums tracking-tighter">R$ {calculatePrice(reg.categories, academy.name).toFixed(2).replace('.', ',')}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {pendingRegs.length > 0 && (
-                  <div className="mt-auto">
-                    <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-1 ml-1">Total deste Lote</p>
-                    <p className="text-5xl font-black text-white tracking-tighter italic">R$ {totalPending.toFixed(2).replace('.', ',')}</p>
-                  </div>
-                )}
+      {!isAdding && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-2">
+          <Card className="p-6 border-white/5 bg-gradient-to-br from-blue-900/10 to-transparent">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
+                <Users className="w-5 h-5 text-blue-400" />
               </div>
-
-              {pendingRegs.length > 0 ? (
-                <div className="w-full lg:w-96 flex flex-col gap-6">
-                  <div className="bg-white p-6 rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.05)] border-4 border-white/20 relative group/pix">
-                    <div className="absolute inset-0 bg-red-600/5 rounded-[22px] blur-xl opacity-0 group-hover/pix:opacity-100 transition-opacity" />
-                    <div className="relative z-10 flex flex-col items-center gap-4">
-                      <QRCodeSVG 
-                        value={generatePix(
-                          totalPending, 
-                          `Lote ${academy.name.substring(0, 10)}`, 
-                          academy.id.substring(0, 5)
-                        )} 
-                        size={180} 
-                        className="w-full h-auto max-w-[180px]" 
-                      />
-                      <div className="w-full space-y-3 mt-2">
-                        <div className="space-y-1 mb-2">
-                          <p className="text-[9px] font-black text-stone-500 uppercase tracking-widest pl-1">Descrição do Pagamento</p>
-                          <div className="p-3 bg-black/40 border border-white/5 rounded-xl text-[9px] text-stone-300 font-bold uppercase leading-relaxed">
-                            {pendingRegs.map(reg => {
-                              const athlete = athletes.find(a => a.id === reg.athleteId);
-                              return `${athlete?.name} (${reg.categories.join(' + ')})`;
-                            }).join(', ')}
-                          </div>
-                        </div>
-                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest text-center mt-4">PIX Copia e Cola (Leonardo Reis)</p>
-                        <div className="flex gap-2">
-                          <input 
-                            type="text" 
-                            readOnly 
-                            value={generatePix(
-                              totalPending, 
-                              `Lote ${academy.name.substring(0, 10)}`, 
-                              academy.id.substring(0, 5)
-                            )} 
-                            className="w-full text-[10px] font-mono px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-white outline-none focus:border-red-600/50 transition-all" 
-                          />
-                          <Button 
-                            variant="primary" 
-                            className="shrink-0 px-4 py-3 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 group/copy"
-                            onClick={() => {
-                              navigator.clipboard.writeText(generatePix(
-                                totalPending, 
-                                `Lote ${academy.name.substring(0, 10)}`, 
-                                academy.id.substring(0, 5)
-                              ));
-                              alert('Código PIX com valor e descrição automática copiado!');
-                            }}
-                          >
-                            <Copy className="w-3.5 h-3.5 group-hover/copy:scale-110 transition-transform" />
-                            <span>Copiar</span>
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-
-                    <Button 
-                      variant="primary" 
-                      className="w-full py-5 rounded-2xl shadow-[0_0_30px_rgba(220,38,38,0.2)]"
-                      onClick={() => {
-                        setUploadingAcademyId(academy.id);
-                        fileInputRef.current?.click();
-                      }}
-                      disabled={isUploadingReceipt}
-                    >
-                      {isUploadingReceipt ? 'Enviando...' : 'Anexar Comprovante'}
-                    </Button>
-                    <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest text-center leading-relaxed">
-                      Lote será confirmado após<br/>validação manual do mestre
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="w-full lg:w-96 flex flex-col items-center justify-center p-12 bg-blue-600/5 rounded-[40px] border border-blue-500/20 gap-6">
-                  <div className="w-20 h-20 rounded-3xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 group">
-                    <Clock className="w-10 h-10 text-blue-500 group-hover:rotate-12 transition-transform" />
-                  </div>
-                  <div className="text-center space-y-2">
-                    <h4 className="text-xl font-black text-white uppercase tracking-tighter italic">Em Análise</h4>
-                    <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest leading-relaxed">
-                      Aguardando conferência do<br/>setor financeiro (24h úteis)
-                    </p>
-                  </div>
-                  {academyReceipts.length > 0 && (
-                     <button 
-                       onClick={() => onViewReceipt(academyReceipts[0].receiptData)}
-                       className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:underline"
-                     >
-                       Ver comprovante enviado
-                     </button>
-                   )}
-                </div>
-              )}
+              <div>
+                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Inscritos Totais</p>
+                <p className="text-2xl font-black text-white">{overviewStats.totalInscriptions}</p>
+              </div>
             </div>
           </Card>
-        );
-      })}
+
+          <Card className="p-6 border-white/5 bg-gradient-to-br from-emerald-900/10 to-transparent">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                <Wallet className="w-5 h-5 text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Arrecadação (Pago)</p>
+                <p className="text-2xl font-black text-emerald-400 tabular-nums">
+                  <span className="text-sm text-emerald-500/50 mr-1">R$</span> 
+                  {overviewStats.totalPaid.toFixed(2).replace('.', ',')}
+                </p>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-6 border-white/5 bg-gradient-to-br from-amber-900/10 to-transparent">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                <Clock className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">A Receber</p>
+                <p className="text-2xl font-black text-amber-400 tabular-nums">
+                  <span className="text-sm text-amber-500/50 mr-1">R$</span> 
+                  {overviewStats.totalPending.toFixed(2).replace('.', ',')}
+                </p>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="p-6 border-white/5 bg-gradient-to-br from-purple-900/10 to-transparent">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-purple-500/10 rounded-xl border border-purple-500/20">
+                <TrendingUp className="w-5 h-5 text-purple-400" />
+              </div>
+              <div>
+                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Conversão</p>
+                <p className="text-2xl font-black text-white">{overviewStats.conversionRate}%</p>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {isAdding ? (
         <Card className="p-8 max-w-2xl mx-auto border-white/5">
@@ -623,6 +593,159 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
           )}
         </Card>
       )}
+
+      {!isAdding && academiesWithPendingOrAnalysis.map(academy => {
+        const pendingRegs = registrations.filter(r => r.academyId === academy.id && r.paymentStatus === 'Pendente');
+        const analysisRegs = registrations.filter(r => r.academyId === academy.id && r.paymentStatus === 'Em Análise');
+        const totalPending = pendingRegs.reduce((sum, r) => sum + calculatePrice(r.categories, academy.name), 0);
+        const academyReceipts = receipts.filter(r => r.academyId === academy.id);
+
+        return (
+          <Card key={academy.id} className="p-0 border-white/5 bg-gradient-to-br from-amber-600/5 to-transparent overflow-hidden">
+            <div className="p-8 flex flex-col lg:flex-row gap-10 items-start justify-between">
+              <div className="flex-1 w-full flex flex-col h-full">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                    <AlertCircle className="w-6 h-6 text-amber-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-white uppercase tracking-tighter italic">
+                      {pendingRegs.length > 0 ? "Aguardando Pagamento" : "Em Análise de Comprovante"}
+                    </h3>
+                    <p className="text-[10px] text-amber-500/60 font-black uppercase tracking-[0.2em]">{academy.name}</p>
+                  </div>
+                </div>
+
+                <div className="flex-1 bg-black/20 rounded-2xl border border-white/5 p-4 mb-6">
+                  <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-4 ml-1">Atletas neste lote</p>
+                  <div className="space-y-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+                    {[...pendingRegs, ...analysisRegs].map(reg => {
+                      const athlete = athletes.find(a => a.id === reg.athleteId);
+                      return (
+                        <div key={reg.id} className="flex justify-between items-center group/item p-2 hover:bg-white/5 rounded-xl transition-colors">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center border border-white/5">
+                              <span className="text-xs font-black text-white">{athlete?.name.charAt(0)}</span>
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold text-white uppercase tracking-tight">{athlete?.name}</p>
+                              <p className="text-[8px] text-stone-500 font-bold uppercase tracking-widest">{reg.categories.join(' + ')}</p>
+                            </div>
+                          </div>
+                          <p className="text-xs font-black text-white tabular-nums tracking-tighter">R$ {calculatePrice(reg.categories, academy.name).toFixed(2).replace('.', ',')}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {pendingRegs.length > 0 && (
+                  <div className="mt-auto">
+                    <p className="text-[10px] font-black text-stone-500 uppercase tracking-widest mb-1 ml-1">Total deste Lote</p>
+                    <p className="text-5xl font-black text-white tracking-tighter italic">R$ {totalPending.toFixed(2).replace('.', ',')}</p>
+                  </div>
+                )}
+              </div>
+
+              {pendingRegs.length > 0 ? (
+                <div className="w-full lg:w-96 flex flex-col gap-6">
+                  <div className="bg-white p-6 rounded-3xl shadow-[0_0_50px_rgba(255,255,255,0.05)] border-4 border-white/20 relative group/pix">
+                    <div className="absolute inset-0 bg-red-600/5 rounded-[22px] blur-xl opacity-0 group-hover/pix:opacity-100 transition-opacity" />
+                    <div className="relative z-10 flex flex-col items-center gap-4">
+                      <QRCodeSVG 
+                        value={generatePix(
+                          totalPending, 
+                          `Lote ${academy.name.substring(0, 10)}`, 
+                          academy.id.substring(0, 5)
+                        )} 
+                        size={180} 
+                        className="w-full h-auto max-w-[180px]" 
+                      />
+                      <div className="w-full space-y-3 mt-2">
+                        <div className="space-y-1 mb-2">
+                          <p className="text-[9px] font-black text-stone-500 uppercase tracking-widest pl-1">Descrição do Pagamento</p>
+                          <div className="p-3 bg-black/40 border border-white/5 rounded-xl text-[9px] text-stone-300 font-bold uppercase leading-relaxed">
+                            {pendingRegs.map(reg => {
+                              const athlete = athletes.find(a => a.id === reg.athleteId);
+                              return `${athlete?.name} (${reg.categories.join(' + ')})`;
+                            }).join(', ')}
+                          </div>
+                        </div>
+                        <p className="text-[10px] font-black text-stone-400 uppercase tracking-widest text-center mt-4">PIX Copia e Cola (Leonardo Reis)</p>
+                        <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            readOnly 
+                            value={generatePix(
+                              totalPending, 
+                              `Lote ${academy.name.substring(0, 10)}`, 
+                              academy.id.substring(0, 5)
+                            )} 
+                            className="w-full text-[10px] font-mono px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-white outline-none focus:border-red-600/50 transition-all" 
+                          />
+                          <Button 
+                            variant="primary" 
+                            className="shrink-0 px-4 py-3 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 group/copy"
+                            onClick={() => {
+                              navigator.clipboard.writeText(generatePix(
+                                totalPending, 
+                                `Lote ${academy.name.substring(0, 10)}`, 
+                                academy.id.substring(0, 5)
+                              ));
+                              alert('Código PIX com valor e descrição automática copiado!');
+                            }}
+                          >
+                            <Copy className="w-3.5 h-3.5 group-hover/copy:scale-110 transition-transform" />
+                            <span>Copiar</span>
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+
+                    <Button 
+                      variant="primary" 
+                      className="w-full py-5 rounded-2xl shadow-[0_0_30px_rgba(220,38,38,0.2)]"
+                      onClick={() => {
+                        setUploadingAcademyId(academy.id);
+                        fileInputRef.current?.click();
+                      }}
+                      disabled={isUploadingReceipt}
+                    >
+                      {isUploadingReceipt ? 'Enviando...' : 'Anexar Comprovante'}
+                    </Button>
+                    <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest text-center leading-relaxed">
+                      Lote será confirmado após<br/>validação manual do mestre
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full lg:w-96 flex flex-col items-center justify-center p-12 bg-blue-600/5 rounded-[40px] border border-blue-500/20 gap-6">
+                  <div className="w-20 h-20 rounded-3xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 group">
+                    <Clock className="w-10 h-10 text-blue-500 group-hover:rotate-12 transition-transform" />
+                  </div>
+                  <div className="text-center space-y-2">
+                    <h4 className="text-xl font-black text-white uppercase tracking-tighter italic">Em Análise</h4>
+                    <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest leading-relaxed">
+                      Aguardando conferência do<br/>setor financeiro (24h úteis)
+                    </p>
+                  </div>
+                  {academyReceipts.length > 0 && (
+                     <button 
+                       onClick={() => onViewReceipt(academyReceipts[0].receiptData)}
+                       className="text-[10px] font-black text-blue-500 uppercase tracking-widest hover:underline"
+                     >
+                       Ver comprovante enviado
+                     </button>
+                   )}
+                </div>
+              )}
+            </div>
+          </Card>
+        );
+      })}
       {/* Hidden Global Input for Receipts */}
       <input 
         type="file" 
