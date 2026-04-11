@@ -24,6 +24,10 @@ service cloud.firestore {
     function isAuthenticated() {
       return request.auth != null;
     }
+    
+    function isAnonymous() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
 
     function isAdmin() {
       return isAuthenticated() && 
@@ -99,7 +103,10 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidRegistration(request.resource.data) && 
                       (isAdmin() || isMaster());
-      allow update: if isAdmin() || (isAuthenticated() && (resource.data.academyId != null && get(/databases/$(database)/documents/academies/$(resource.data.academyId)).data.createdBy == request.auth.uid));
+      allow update: if isAdmin() || (isAuthenticated() && (
+                      (resource.data.academyId != null && get(/databases/$(database)/documents/academies/$(resource.data.academyId)).data.createdBy == request.auth.uid) ||
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['results', 'updatedAt'])
+                    ));
       allow delete: if isAdmin() || (isAuthenticated() && (resource.data.academyId != null && get(/databases/$(database)/documents/academies/$(resource.data.academyId)).data.createdBy == request.auth.uid));
     }
 
@@ -123,7 +130,27 @@ service cloud.firestore {
 
     match /matches/{matchId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'winner', 'winnerId', 'woPlayer', 'calledAt', 'finishedAt', 'updatedAt',
+                    'competitorA', 'competitorB', 'poomsaeScores', 'finalScore',
+                    'finalScoreA', 'finalScoreB', 'currentRound', 'roundScores', 'kyopaResult',
+                    'finalTecnica', 'finalApresentacao', 'judgeSessionId', 'rankingProcessed',
+                    'roundWinners', 'winnerRounds', 'totalScoreA', 'totalScoreB'])
+      );
+      allow delete: if isAdmin();
+    }
+    
+    match /court_sessions/{sessionId} {
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      allow update: if isAuthenticated();
+    }
+
+    match /waiting_devices/{deviceId} {
+      allow read, write: if true;
     }
 
     match /audit_logs/{logId} {

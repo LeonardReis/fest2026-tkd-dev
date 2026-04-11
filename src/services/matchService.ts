@@ -13,7 +13,8 @@ import {
   getDocs,
   updateDoc,
   deleteDoc,
-  getDoc
+  getDoc,
+  writeBatch
 } from 'firebase/firestore';
 import { Match, OperationType } from '../types';
 import { handleFirestoreError } from '../utils';
@@ -23,16 +24,20 @@ import { handleFirestoreError } from '../utils';
  */
 export async function saveBracketMatches(matches: Match[]) {
   try {
+    const batch = writeBatch(db);
     for (const match of matches) {
-      await setDoc(doc(db, 'matches', match.id), {
+      const matchRef = doc(db, 'matches', match.id);
+      batch.set(matchRef, {
         ...match,
         createdAt: serverTimestamp(),
       });
     }
+    await batch.commit();
     
+    // Processar avanços de BYE após garantir que todas as lutas existem
     for (const match of matches) {
       if (match.status === 'finished' && match.winnerId && match.nextMatchId) {
-        await advanceWinner(match.id, match.winnerId);
+        await advanceWinner(match.id, match.winnerId, match.winnerReason || 'points');
       }
     }
   } catch (error) {
@@ -66,7 +71,7 @@ export async function resetBracket(groupKey: string, regIds?: string[], discipli
           const regData = regSnap.data();
           const results = (regData.results || []).filter((r: any) => r.groupKey !== groupKey && r.groupKey !== baseGroupKey);
           
-          // Tentar inferir a disciplina pelo groupKey para limpar o status correto
+          // Usar a disciplina passada ou inferir pelo groupKey
           let discipline = disciplineStr;
           if (!discipline) {
             discipline = 'Kyorugui'; // default
@@ -79,9 +84,8 @@ export async function resetBracket(groupKey: string, regIds?: string[], discipli
 
           transaction.update(regRef, {
             results,
-            isMatched: false, // Legado
-            [`disciplineStatus.${discipline}.isMatched`]: false,
-            [`disciplineStatus.${discipline}.assignedCategory`]: null
+            isMatched: false,
+            [`disciplineStatus.${discipline}.isMatched`]: false
           });
         });
       }
@@ -127,9 +131,108 @@ export async function updateMatchScore(matchId: string, position: 'A' | 'B', sco
 }
 
 /**
+ * Finaliza uma categoria de Poomsae ou Kyopa, calculando o ranking final e gerando pódio.
+ */
+export async function finalizeModalityCategory(groupKey: string, modality: 'Poomsae' | 'Kyopa') {
+  try {
+    const q = query(collection(db, 'matches'), where('groupKey', '==', groupKey));
+    const snap = await getDocs(q);
+    const matches = snap.docs.map(d => ({ id: d.id, ...d.data() } as Match));
+
+    if (matches.length === 0) return;
+
+    // 1. Extrair competidores e seus resultados
+    let competitors: any[] = [];
+    
+    if (modality === 'Poomsae') {
+      competitors = matches.map(m => ({
+        regId: m.competitorA?.athleteId,
+        score: m.finalScore || 0,
+        presentation: m.finalApresentacao || 0,
+        technical: m.finalTecnica || 0
+      }));
+
+      // Ordenação Poomsae (WT): Total -> Apresentação -> Técnica
+      competitors.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (b.presentation !== a.presentation) return b.presentation - a.presentation;
+        return b.technical - a.technical;
+      });
+    } else {
+      // Kyopa
+      competitors = matches.map(m => ({
+        regId: m.competitorA?.athleteId,
+        broken: m.kyopaResult?.broken || 0,
+        attempted: m.kyopaResult?.attempted || 1,
+        score: m.finalScore || 0
+      }));
+
+      // Ordenação Kyopa: Maior score (que já contém a eficiência embutida pelo scoreboard)
+      competitors.sort((a, b) => b.score - a.score);
+    }
+
+    // 2. Atribuir lugares e pontos
+    const batch = writeBatch(db);
+    
+    for (let i = 0; i < competitors.length; i++) {
+        const comp = competitors[i];
+        if (!comp.regId) continue;
+
+        const place = i + 1;
+        let points = 0;
+        if (place === 1) points = 10;
+        else if (place === 2) points = 7;
+        else if (place === 3) points = 5;
+        else points = 1;
+
+        const regRef = doc(db, 'registrations', comp.regId);
+        const regSnap = await getDoc(regRef);
+        if (!regSnap.exists()) continue;
+
+        const regData = regSnap.data();
+        let results = [...(regData.results || [])];
+        const resIdx = results.findIndex(r => r.groupKey === groupKey);
+
+        const resultData = {
+          groupKey,
+          place,
+          points,
+          score: comp.score,
+          modality: modality,
+          finishedAt: new Date().toISOString()
+        };
+
+        if (resIdx >= 0) {
+          results[resIdx] = { ...results[resIdx], ...resultData };
+        } else {
+          results.push(resultData);
+        }
+
+        batch.update(regRef, { 
+          results,
+          updatedAt: new Date().toISOString()
+        });
+    }
+
+    // 3. Marcar partidas como processadas para evitar duplicidade no ranking mesário
+    const matchQ = query(collection(db, 'matches'), where('groupKey', '==', groupKey));
+    const matchSnap = await getDocs(matchQ);
+    matchSnap.docs.forEach(d => {
+      batch.update(d.ref, { rankingProcessed: true });
+    });
+
+    await batch.commit();
+    console.log(`[finalizeModalityCategory] Categoria ${groupKey} finalizada com sucesso.`);
+  } catch (error) {
+    console.error("Erro ao finalizar categoria:", error);
+    throw error;
+  }
+}
+
+/**
  * Avança o vencedor para o próximo round e gerencia o pódio se for a final ou semifinal (Bronze)
  */
-export async function advanceWinner(matchId: string, winnerId: string) {
+export async function advanceWinner(matchId: string, winnerId: string, reason: Match['winnerReason'] = 'points') {
   try {
     await runTransaction(db, async (transaction) => {
       // 1. LEITURAS (GETS) NO INÍCIO (Obrigatório)
@@ -157,11 +260,12 @@ export async function advanceWinner(matchId: string, winnerId: string) {
       const loserRegSnap = safeLoserId ? await transaction.get(doc(db, 'registrations', safeLoserId)) : null;
 
       // 2. ESCRITAS (WRITES) NO FINAL
-      console.log(`[advanceWinner] Processando match ${matchId}. Vencedor: ${safeWinnerId}`);
+      console.log(`[advanceWinner] Processando match ${matchId}. Vencedor: ${safeWinnerId} (${reason})`);
       
       // Atualizar a luta atual com o vencedor
       transaction.update(matchRef, {
         winnerId: safeWinnerId,
+        winnerReason: reason,
         status: 'finished',
         updatedAt: serverTimestamp()
       });
@@ -223,6 +327,7 @@ export async function advanceWinner(matchId: string, winnerId: string) {
           matchId, 
           winnerId: safeWinnerId, 
           loserId: safeLoserId, 
+          winnerReason: reason,
           groupKey: matchData.groupKey,
           round: matchData.round,
           isFinal: !matchData.nextMatchId

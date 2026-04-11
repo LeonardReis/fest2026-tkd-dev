@@ -56,7 +56,9 @@ import {
   CheckCircle,
   Copy,
   ExternalLink,
-  Medal
+  Medal,
+  Menu,
+  X
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -70,6 +72,8 @@ import { ProfileView } from './components/views/ProfileView';
 import { CompetitionView } from './components/views/CompetitionView';
 import { RankingView } from './components/views/RankingView';
 import { DashboardView, TributeCard } from './components/views/DashboardView';
+import { CourtView } from './components/views/CourtView';
+import { JoinView } from './components/views/JoinView';
 
 
 const UNIAO_LOPES_LOGO = "/logo-colombo.png";
@@ -78,20 +82,44 @@ const UNIAO_LOPES_LOGO = "/logo-colombo.png";
 
 // --- Main App ---
 
-type ViewMode = 'dashboard' | 'academy' | 'athletes' | 'registrations' | 'competition' | 'ranking' | 'admin' | 'profile';
+type ViewMode = 'dashboard' | 'academy' | 'athletes' | 'registrations' | 'competition' | 'ranking' | 'admin' | 'profile' | 'court' | 'join';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authInitialized, setAuthInitialized] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [loadingTimeout, setLoadingTimeout] = useState(false);
-  const [view, setView] = useState<ViewMode>('dashboard');
-  const [viewParams, setViewParams] = useState<any>(null);
+  const [view, setView] = useState<ViewMode>(() => {
+    // 1. Prioridade máxima: Parâmetros da URL (prevenir flash do dashboard)
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('session')) return 'court';
+    if (params.get('join') === 'arena' || params.get('arena') === 'arena') return 'join';
+
+    // 2. Fallback: localStorage
+    const saved = localStorage.getItem('last_view');
+    return (saved as ViewMode) || 'dashboard';
+  });
+
+  const [viewParams, setViewParams] = useState<any>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const session = params.get('session');
+    if (session) return { sessionId: session };
+
+    const saved = localStorage.getItem('last_view_params');
+    return saved ? JSON.parse(saved) : null;
+  });
   
   const navigateTo = (newView: ViewMode, params?: any) => {
     setView(newView);
     setViewParams(params);
+    localStorage.setItem('last_view', newView);
+    if (params) {
+      localStorage.setItem('last_view_params', JSON.stringify(params));
+    } else {
+      localStorage.removeItem('last_view_params');
+    }
   };
 
   const [academies, setAcademies] = useState<Academy[]>([]);
@@ -101,11 +129,31 @@ export default function App() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [settings, setSettings] = useState<any>({ mercadoPagoEnabled: true });
   const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     document.title = "3º Festival União Lopes - Portal";
+
+    // Handle Court Kiosk mode via URL params
+    const params = new URLSearchParams(window.location.search);
+    const sessionToken = params.get('session');
+    const joinParam = params.get('join');
+    const arenaParam = params.get('arena');
     
-    // Safety timeout to prevent infinite loading
+    const isJoin = joinParam === 'true' || joinParam === 'arena' || arenaParam === 'true' || arenaParam === 'arena' || window.location.pathname === '/join';
+    
+    if (sessionToken && view !== 'court') {
+      console.log("🚀 Sessão PRIORIZADA via URL:", sessionToken);
+      navigateTo('court', { sessionId: sessionToken });
+    } else if (isJoin && view !== 'join') {
+      console.log("🚀 Entrando no Portal da Arena via URL");
+      navigateTo('join');
+    }
+    
+  }, [loading, window.location.search]);
+
+  // Safety timeout to prevent infinite loading
+  useEffect(() => {
     const timer = setTimeout(() => {
       if (loading) {
         console.warn("Loading timeout reached. Forcing loading state to false.");
@@ -119,8 +167,16 @@ export default function App() {
   // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      console.log("Auth state changed:", firebaseUser?.uid || 'no user');
       setUser(firebaseUser);
+      setAuthInitialized(true);
       if (firebaseUser) {
+        if (firebaseUser.isAnonymous) {
+          setProfile(null);
+          setLoading(false);
+          return;
+        }
+
         try {
           // Admin check by email whitelist
           const adminEmails = ['leo@laravitoria.com', 'tauyllin.edfisica@hotmail.com', 'tauyllin.tkd@gmail.com', 'carloswalesko@gmail.com'];
@@ -170,7 +226,7 @@ export default function App() {
 
   // Redirecionamento de segurança para Master sem Academia
   useEffect(() => {
-    if (profile?.role === 'master' && !profile.academyId && view !== 'academy' && view !== 'profile') {
+    if (profile?.role === 'master' && !profile.academyId && view !== 'academy' && view !== 'profile' && view !== 'court') {
       console.log("Master sem academia detectado. Redirecionando para config.");
       setView('academy');
     }
@@ -302,7 +358,7 @@ export default function App() {
     );
   }
 
-  if (!user) {
+  if (!user && view !== 'court' && view !== 'join') {
     return (
       <div className="min-h-screen flex bg-stone-900 font-sans selection:bg-red-500 selection:text-white">
         {/* Left Side - Poster Concept */}
@@ -426,8 +482,36 @@ export default function App() {
           <div className="absolute inset-0 bg-[url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyBAMAAADsEZWCAAAAGFBMVEVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUU9pYm6AAAAB3RSTlMAAAAAAAAAlXisGAAAACJJREFUKM9jGAWjYBSMglEwCkbBKJgFomAUjIJRMApGwSgAAByXAE99v99cAAAAAElFTkSuQmCC')] opacity-5 mix-blend-overlay" />
         </div>
 
+        {/* Mobile Header */}
+        {view !== 'court' && view !== 'join' && (
+          <header className="fixed top-0 left-0 right-0 h-16 bg-stone-900/80 backdrop-blur-xl border-b border-white/5 flex items-center justify-between px-6 z-[60] md:hidden">
+            <div className="flex items-center gap-3">
+              <img src={settings?.festivalLogo || UNIAO_LOPES_LOGO} alt="Logo" className="w-8 h-8 object-contain" />
+              <h2 className="text-xs font-black text-white uppercase italic tracking-tighter">Portal União Lopes</h2>
+            </div>
+            <button 
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-2 rounded-xl bg-white/5 border border-white/10 text-white"
+            >
+              {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          </header>
+        )}
+
+        {/* Sidebar Backdrop (Mobile) */}
+        {view !== 'court' && view !== 'join' && isSidebarOpen && (
+          <div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] md:hidden"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+        )}
+
         {/* Sidebar */}
-        <aside className="w-72 bg-stone-900/40 backdrop-blur-3xl border-r border-white/5 flex flex-col hidden md:flex z-50">
+        {view !== 'court' && view !== 'join' && (
+        <aside className={cn(
+          "fixed inset-y-0 left-0 w-72 bg-stone-900 border-r border-white/5 flex flex-col z-[80] transition-transform duration-300 md:relative md:translate-x-0 md:bg-stone-900/40 md:backdrop-blur-3xl",
+          isSidebarOpen ? "translate-x-0 shadow-[20px_0_50px_rgba(0,0,0,0.5)]" : "-translate-x-full"
+        )}>
           <div className="p-8 border-b border-white/5 flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-white/5 p-2 border border-white/10 shadow-xl overflow-hidden shrink-0">
               <img src={settings?.festivalLogo || UNIAO_LOPES_LOGO} alt="Logo" className="w-full h-full object-contain" />
@@ -439,16 +523,16 @@ export default function App() {
           </div>
 
           <nav className="flex-1 p-4 space-y-2">
-            <NavItem active={view === 'dashboard'} onClick={() => navigateTo('dashboard')} icon={<Users className="w-5 h-5" />} label="Dashboard" />
-            <NavItem active={view === 'academy'} onClick={() => navigateTo('academy')} icon={<School className="w-5 h-5" />} label="Minha Academia" />
-            <NavItem active={view === 'athletes'} onClick={() => navigateTo('athletes')} icon={<UserPlus className="w-5 h-5" />} label="Atletas" />
-            <NavItem active={view === 'registrations'} onClick={() => navigateTo('registrations')} icon={<Calendar className="w-5 h-5" />} label="Inscrições" />
-            <NavItem active={view === 'competition'} onClick={() => navigateTo('competition')} icon={<Trophy className="w-5 h-5" />} label="Chaves" />
+            <NavItem active={view === 'dashboard'} onClick={() => { navigateTo('dashboard'); setIsSidebarOpen(false); }} icon={<Users className="w-5 h-5" />} label="Dashboard" />
+            <NavItem active={view === 'academy'} onClick={() => { navigateTo('academy'); setIsSidebarOpen(false); }} icon={<School className="w-5 h-5" />} label="Minha Academia" />
+            <NavItem active={view === 'athletes'} onClick={() => { navigateTo('athletes'); setIsSidebarOpen(false); }} icon={<UserPlus className="w-5 h-5" />} label="Atletas" />
+            <NavItem active={view === 'registrations'} onClick={() => { navigateTo('registrations'); setIsSidebarOpen(false); }} icon={<Calendar className="w-5 h-5" />} label="Inscrições" />
+            <NavItem active={view === 'competition'} onClick={() => { navigateTo('competition'); setIsSidebarOpen(false); }} icon={<Trophy className="w-5 h-5" />} label="Chaves" />
             {profile?.role === 'admin' && (
-              <NavItem active={view === 'ranking'} onClick={() => navigateTo('ranking')} icon={<Medal className="w-5 h-5" />} label="Ranking" />
+              <NavItem active={view === 'ranking'} onClick={() => { navigateTo('ranking'); setIsSidebarOpen(false); }} icon={<Medal className="w-5 h-5" />} label="Ranking" />
             )}
             {profile?.role === 'admin' && (
-              <NavItem active={view === 'admin'} onClick={() => navigateTo('admin')} icon={<Shield className="w-5 h-5" />} label="Administração" />
+              <NavItem active={view === 'admin'} onClick={() => { navigateTo('admin'); setIsSidebarOpen(false); }} icon={<Shield className="w-5 h-5" />} label="Administração" />
             )}
           </nav>
 
@@ -491,29 +575,37 @@ export default function App() {
             </div>
           </div>
         </aside>
+        )}
 
         {/* Main Content */}
-        <main className="flex-1 overflow-y-auto z-40 relative">
-          <div className="p-6 lg:p-12">
-            <div className="max-w-7xl mx-auto space-y-12">
-              <header className="flex items-center justify-between pb-8 border-b border-white/5">
-                <div>
-                  <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter leading-none">
-                    {view === 'dashboard' && 'Visão Geral'}
-                    {view === 'academy' && 'Minha Academia'}
-                    {view === 'athletes' && 'Gestão de Atletas'}
-                    {view === 'registrations' && 'Inscrições Ativas'}
-                    {view === 'competition' && 'Chaves de Competição'}
-                    {view === 'ranking' && 'Ranking'}
-                    {view === 'admin' && 'Painel Administrativo'}
-                    {view === 'profile' && 'Configurações de Perfil'}
-                  </h1>
-                  <p className="text-stone-500 text-sm font-bold uppercase tracking-widest mt-2 flex items-center gap-2">
-                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                    Portal Fest 2026 • Ambiente Seguro
-                  </p>
-                </div>
-              </header>
+        <main className={cn(
+          "flex-1 overflow-y-auto z-40 relative",
+          (view !== 'court' && view !== 'join') && "pt-16 md:pt-0"
+        )}>
+          <div className={cn(
+            (view !== 'court' && view !== 'join') ? "p-4 sm:p-6 lg:p-12" : "p-0"
+          )}>
+            <div className="max-w-7xl mx-auto space-y-8 md:space-y-12">
+              {view !== 'court' && view !== 'join' && (
+                <header className="flex items-center justify-between pb-8 border-b border-white/5">
+                  <div>
+                    <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter leading-none">
+                      {view === 'dashboard' && 'Visão Geral'}
+                      {view === 'academy' && 'Minha Academia'}
+                      {view === 'athletes' && 'Gestão de Atletas'}
+                      {view === 'registrations' && 'Inscrições Ativas'}
+                      {view === 'competition' && 'Chaves de Competição'}
+                      {view === 'ranking' && 'Ranking'}
+                      {view === 'admin' && 'Painel Administrativo'}
+                      {view === 'profile' && 'Configurações de Perfil'}
+                    </h1>
+                    <p className="text-stone-500 text-sm font-bold uppercase tracking-widest mt-2 flex items-center gap-2">
+                      <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                      Portal Fest 2026 • Ambiente Seguro
+                    </p>
+                  </div>
+                </header>
+              )}
 
               <AnimatePresence mode="wait">
                 {view === 'dashboard' && <DashboardView key="dashboard" profile={profile} stats={{ academies: academies.length, athletes: athletes.length, registrations: registrations.length }} settings={settings} academies={academies} registrations={registrations} athletes={athletes} onNavigate={navigateTo} />}
@@ -524,6 +616,8 @@ export default function App() {
                 {view === 'ranking' && <RankingView key="ranking" academies={academies} registrations={registrations} />}
                 {view === 'admin' && <AdminView key="admin" profile={profile} user={user} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} transactions={transactions} settings={settings} onViewReceipt={setViewingReceipt} />}
                 {view === 'profile' && <ProfileView key="profile" profile={profile} user={user} />}
+                {view === 'court' && <CourtView key="court" sessionId={viewParams?.sessionId} user={user} profile={profile} authInitialized={authInitialized} deviceId={viewParams?.deviceId} />}
+                {view === 'join' && <JoinView key="join" onNavigate={navigateTo} />}
               </AnimatePresence>
             </div>
           </div>

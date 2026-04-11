@@ -261,8 +261,9 @@ export function AthletesView({ profile, user, athletes, academies, registrations
         </Card>
       ) : (
         <Card className="border-white/5 bg-white/[0.02]">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[800px]">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-white/5 border-b border-white/5">
                   <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Competidor</th>
@@ -289,73 +290,136 @@ export function AthletesView({ profile, user, athletes, academies, registrations
                     return bIdx - aIdx;
                   })
                   .map(athlete => {
-                  const ageCat = getAgeCategory(athlete.birthYear, athlete.belt);
-                  const weightCat = getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt);
-                  return (
-                  <tr key={athlete.id} className="hover:bg-white/[0.03] transition-colors group/row">
-                    <td className="px-8 py-6">
-                      <div className="flex items-center gap-4">
-                        <div className="relative">
-                          <div className="absolute inset-0 bg-red-600/20 rounded-2xl blur-lg opacity-0 group-hover/row:opacity-100 transition-opacity" />
-                          {athlete.avatar ? (
-                            <img src={athlete.avatar} alt={athlete.name} className="w-12 h-12 rounded-2xl object-cover border border-white/10 relative z-10 p-0.5 shadow-xl" />
-                          ) : (
-                            <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-stone-600 border border-white/10 relative z-10">
-                              <span className="text-xl font-black uppercase select-none">{athlete.name.charAt(0)}</span>
+                    const ageCat = getAgeCategory(athlete.birthYear, athlete.belt);
+                    const weightCat = getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt);
+                    return (
+                      <tr key={athlete.id} className="hover:bg-white/[0.03] transition-colors group/row">
+                        <td className="px-8 py-6">
+                          <div className="flex items-center gap-4">
+                            <div className="relative">
+                              <div className="absolute inset-0 bg-red-600/20 rounded-2xl blur-lg opacity-0 group-hover/row:opacity-100 transition-opacity" />
+                              {athlete.avatar ? (
+                                <img src={athlete.avatar} alt={athlete.name} className="w-12 h-12 rounded-2xl object-cover border border-white/10 relative z-10 p-0.5 shadow-xl" />
+                              ) : (
+                                <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-stone-600 border border-white/10 relative z-10">
+                                  <span className="text-xl font-black uppercase select-none">{athlete.name.charAt(0)}</span>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-black text-white uppercase tracking-tight leading-none">{athlete.name}</p>
-                            {athlete.createdBy === profile?.uid && athlete.name === profile?.displayName && (
-                              <span className="px-2 py-0.5 bg-blue-600/20 text-blue-400 text-[8px] font-black rounded uppercase tracking-widest border border-blue-500/20">Você</span>
-                            )}
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-black text-white uppercase tracking-tight leading-none">{athlete.name}</p>
+                                {athlete.createdBy === profile?.uid && athlete.name === profile?.displayName && (
+                                  <span className="px-2 py-0.5 bg-blue-600/20 text-blue-400 text-[8px] font-black rounded uppercase tracking-widest border border-blue-500/20">Você</span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-stone-500 uppercase font-bold tracking-widest mt-1.5 flex items-center gap-2">
+                                <Calendar className="w-3 h-3" />
+                                Ano: {athlete.birthYear}
+                              </p>
+                            </div>
                           </div>
-                          <p className="text-[10px] text-stone-500 uppercase font-bold tracking-widest mt-1.5 flex items-center gap-2">
-                            <Calendar className="w-3 h-3" />
-                            Ano: {athlete.birthYear}
+                        </td>
+                        <td className="px-8 py-6">
+                          <div className="space-y-1">
+                            <p className="text-xs font-black text-white uppercase tracking-tighter">
+                              {ageCat} • {athlete.gender === 'M' ? 'Masc' : 'Fem'}
+                            </p>
+                            <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest opacity-60">{weightCat}</p>
+                          </div>
+                        </td>
+                        <td className="px-8 py-6">
+                          <BeltBadge belt={athlete.belt} />
+                        </td>
+                        <td className="px-8 py-6">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-black text-white">{athlete.weight}</span>
+                            <span className="text-[10px] font-bold text-stone-500 uppercase">kg</span>
+                          </div>
+                        </td>
+                        <td className="px-8 py-6">
+                          <p className="text-xs font-bold text-stone-400 uppercase tracking-wide">
+                            {academies.find(a => a.id === athlete.academyId)?.name || 'N/A'}
                           </p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="space-y-1">
-                        <p className="text-xs font-black text-white uppercase tracking-tighter">
-                          {ageCat} • {athlete.gender === 'M' ? 'Masc' : 'Fem'}
-                        </p>
-                        <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest opacity-60">{weightCat}</p>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <BeltBadge belt={athlete.belt} />
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-black text-white">{athlete.weight}</span>
-                        <span className="text-[10px] font-bold text-stone-500 uppercase">kg</span>
-                      </div>
-                    </td>
-                    <td className="px-8 py-6">
-                      <p className="text-xs font-bold text-stone-400 uppercase tracking-wide">
-                        {academies.find(a => a.id === athlete.academyId)?.name || 'N/A'}
-                      </p>
-                    </td>
-                    <td className="px-8 py-6">
-                      <div className="flex justify-center gap-2">
-                        <Button variant="ghost" className="p-3 bg-white/5 hover:bg-emerald-600/20 group/edit" onClick={() => handleEdit(athlete)}>
-                          <Edit className="w-4 h-4 group-hover/edit:text-emerald-500 transition-colors" />
-                        </Button>
-                        <Button variant="ghost" className="p-3 bg-white/5 hover:bg-red-600/20 group/del" onClick={() => handleDelete(athlete.id)}>
-                          <Trash2 className="w-4 h-4 group-hover/del:text-red-500 transition-colors" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                  );
-                })}
+                        </td>
+                        <td className="px-8 py-6">
+                          <div className="flex justify-center gap-2">
+                            <Button variant="ghost" className="p-3 bg-white/5 hover:bg-emerald-600/20 group/edit" onClick={() => handleEdit(athlete)}>
+                              <Edit className="w-4 h-4 group-hover/edit:text-emerald-500 transition-colors" />
+                            </Button>
+                            <Button variant="ghost" className="p-3 bg-white/5 hover:bg-red-600/20 group/del" onClick={() => handleDelete(athlete.id)}>
+                              <Trash2 className="w-4 h-4 group-hover/del:text-red-500 transition-colors" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden space-y-4 p-4">
+            {athletes
+              .filter(a => {
+                const isVisible = profile?.role === 'admin' || a.academyId === profile?.academyId;
+                if (!isVisible) return false;
+                if (!searchTerm) return true;
+                const search = searchTerm.toLowerCase();
+                const academyName = academies.find(ac => ac.id === a.academyId)?.name.toLowerCase() || '';
+                return a.name.toLowerCase().includes(search) || academyName.includes(search);
+              })
+              .map(athlete => {
+                const ageCat = getAgeCategory(athlete.birthYear, athlete.belt);
+                const weightCat = getWeightCategory(ageCat, athlete.gender, athlete.weight, athlete.belt);
+                return (
+                  <div key={athlete.id} className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-4">
+                    <div className="flex items-center gap-4">
+                      {athlete.avatar ? (
+                        <img src={athlete.avatar} alt={athlete.name} className="w-14 h-14 rounded-xl object-cover border border-white/10" />
+                      ) : (
+                        <div className="w-14 h-14 rounded-xl bg-white/5 flex items-center justify-center text-stone-600 border border-white/10 text-xl font-black">
+                          {athlete.name.charAt(0)}
+                        </div>
+                      )}
+                      <div className="flex-1">
+                        <p className="font-black text-white uppercase tracking-tight text-sm">{athlete.name}</p>
+                        <p className="text-[9px] text-stone-500 uppercase font-black tracking-widest mt-1">
+                          {academies.find(ac => ac.id === athlete.academyId)?.name || 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-black/20 p-2 rounded-xl border border-white/5">
+                        <p className="text-[8px] text-stone-500 font-black uppercase tracking-widest mb-1">Categoria</p>
+                        <p className="text-[10px] font-black text-white uppercase">{ageCat} • {athlete.gender}</p>
+                        <p className="text-[8px] text-stone-600 font-bold uppercase mt-0.5">{weightCat}</p>
+                      </div>
+                      <div className="bg-black/20 p-2 rounded-xl border border-white/5">
+                        <p className="text-[8px] text-stone-500 font-black uppercase tracking-widest mb-1">Graduação</p>
+                        <BeltBadge belt={athlete.belt} />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl font-black text-white">{athlete.weight}</span>
+                        <span className="text-[10px] font-bold text-stone-500 uppercase mt-1">kg</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button variant="ghost" className="p-2.5 bg-white/5 h-9 w-9" onClick={() => handleEdit(athlete)}>
+                          <Edit className="w-4 h-4 text-emerald-500" />
+                        </Button>
+                        <Button variant="ghost" className="p-2.5 bg-white/5 h-9 w-9" onClick={() => handleDelete(athlete.id)}>
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
           </div>
           {athletes.length === 0 && (
             <div className="py-32 flex flex-col items-center justify-center gap-6">

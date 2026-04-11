@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { Trophy, Medal, Award, Star } from 'lucide-react';
 import { Registration, Academy } from '../../types';
@@ -14,6 +14,8 @@ interface RankingStats {
 }
 
 export function RankingView({ academies, registrations }: { academies: Academy[]; registrations: Registration[] }) {
+  const [selectedModality, setSelectedModality] = useState<'Geral' | 'Kyorugui' | 'Poomsae' | 'Kyopa'>('Geral');
+
   const ranking = useMemo(() => {
     const statsMap: Record<string, RankingStats> = {};
 
@@ -26,15 +28,29 @@ export function RankingView({ academies, registrations }: { academies: Academy[]
       if (!stats) return;
 
       reg.results?.forEach(res => {
+        // Filtro de modalidade
+        const mod = res.modality || (res.groupKey.includes('tábuas') ? 'Kyopa' : (res.groupKey.includes('|') ? 'Kyorugui' : 'Poomsae'));
+        if (selectedModality !== 'Geral' && mod !== selectedModality) return;
+
         const place = Number(res.place);
+        const points = Number(res.points || 0);
+
+        // Somar pontos: Prioriza o campo 'points' (que já deve conter a soma de vitórias + medalha)
+        // Caso não exista, usa o fallback baseado na colocação.
+        if (points > 0) {
+          stats.points += points;
+        } else {
+          if (place === 1) stats.points += 10;
+          else if (place === 2) stats.points += 7;
+          else if (place === 3) stats.points += 5;
+        }
+
+        // Contagem de medalhas permanece baseada no 'place'
         if (place === 1) {
-          stats.points += 10;
           stats.gold += 1;
         } else if (place === 2) {
-          stats.points += 7;
           stats.silver += 1;
         } else if (place === 3) {
-          stats.points += 5;
           stats.bronze += 1;
         }
       });
@@ -49,16 +65,35 @@ export function RankingView({ academies, registrations }: { academies: Academy[]
         if (b.bronze !== a.bronze) return b.bronze - a.bronze;
         return a.name.localeCompare(b.name);
       });
-  }, [academies, registrations]);
+  }, [academies, registrations, selectedModality]);
 
   const top3 = ranking.slice(0, 3);
   const others = ranking.slice(3);
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-10">
-      <header>
-        <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Ranking Geral</h2>
-        <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Classificação Oficial de Academias (Ouro: 10, Prata: 7, Bronze: 5)</p>
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div>
+          <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">Ranking {selectedModality}</h2>
+          <p className="text-[10px] text-stone-500 font-bold uppercase tracking-widest mt-1">Classificação Oficial de Academias (Ouro: 10, Prata: 7, Bronze: 5)</p>
+        </div>
+
+        <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 overflow-x-auto no-scrollbar">
+          {(['Geral', 'Kyorugui', 'Poomsae', 'Kyopa'] as const).map((mod) => (
+            <button
+              key={mod}
+              onClick={() => setSelectedModality(mod)}
+              className={cn(
+                "px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap",
+                selectedModality === mod 
+                  ? "bg-red-600 text-white shadow-lg shadow-red-600/20" 
+                  : "text-stone-500 hover:text-white hover:bg-white/5"
+              )}
+            >
+              {mod}
+            </button>
+          ))}
+        </div>
       </header>
 
       {ranking.length === 0 ? (

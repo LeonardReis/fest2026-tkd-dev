@@ -1,6 +1,8 @@
 import React from 'react';
 
-export function BeltBadge({ belt, size = 'md' }: { belt: string; size?: 'sm' | 'md' | 'lg' }) {
+export function BeltBadge({ belt, size = 'md' }: { belt: string | null | undefined; size?: 'sm' | 'md' | 'lg' }) {
+  if (!belt) return null;
+
   let style: React.CSSProperties = {};
   let className = "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-1.5 border ";
   

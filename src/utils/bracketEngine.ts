@@ -1,4 +1,5 @@
 import { Match, MatchCompetitor } from '../types';
+import { sanitizeForId } from '../utils';
 
 /**
  * Gera a ordem de seeding padrão para chaves de eliminatória simples.
@@ -59,8 +60,8 @@ export function generateBracket(
   const p = Math.pow(2, Math.ceil(Math.log2(n)));
   const totalRounds = Math.ceil(Math.log2(p));
 
-  // Sanitização para evitar caracteres especiais no Firebase Document ID
-  const sanitizedCategoryId = categoryId.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+  // Sanitização padronizada para evitar caracteres especiais no Firebase Document ID
+  const sanitizedCategoryId = sanitizeForId(categoryId);
 
   // 2. Embaralhar atletas para o sorteio imparcial
   const shuffled = [...athletes].sort(() => Math.random() - 0.5);

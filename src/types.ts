@@ -52,8 +52,11 @@ export interface Registration {
   results?: { 
     groupKey: string; 
     place: 1 | 2 | 3 | 'WO' | null;
+    modality?: 'Kyorugui' | 'Poomsae' | 'Kyopa';
     score?: number; // Para Poomsae/Kyopa (ex: 9.50)
     points?: number; // Para Kyorugui (ex: 24)
+    roundScore?: string; // Placar de rounds (ex: "2-0")
+    roundPoints?: Array<{ a: number, b: number }>; // Pontos por round para análise
     bracketPosition?: number; // Posição sorteada (1 a N)
   }[];
 }

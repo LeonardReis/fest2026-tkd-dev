@@ -13,6 +13,12 @@ export const db = isProd
   : getFirestore(app, (homologConfig as any).firestoreDatabaseId);
 export const auth = getAuth(app);
 
+console.log("🔥 [Firebase] Inicializado:", {
+  project: firebaseConfig.projectId,
+  database: isProd ? '(default)' : (homologConfig as any).firestoreDatabaseId,
+  env: isProd ? 'PROD' : 'HOMOLOG'
+});
+
 // Testar conexão
 async function testConnection() {
   try {

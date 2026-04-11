@@ -2,19 +2,18 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { Match, MatchCompetitor } from '../types';
 import { cn } from './ui';
-import { Trophy, ArrowRight, GripVertical } from 'lucide-react';
+import { Trophy, ArrowRight, GripVertical, AlertCircle, ChevronRight } from 'lucide-react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 
 interface BracketTreeProps {
   matches: Match[];
-  onSetWinner?: (matchId: string, winnerId: string) => void;
+  onSetWinner?: (matchId: string, winnerId: string, reason?: Match['winnerReason']) => void;
   onUpdateScore?: (matchId: string, competitor: 'A' | 'B', score: number) => void;
   isAdmin?: boolean;
 }
 
 export function BracketTree({ matches, onSetWinner, onUpdateScore, isAdmin }: BracketTreeProps) {
-  // 1. Agrupar matches por round
   const rounds = matches.reduce((acc, match) => {
     if (!acc[match.round]) acc[match.round] = [];
     acc[match.round].push(match);
@@ -33,28 +32,38 @@ export function BracketTree({ matches, onSetWinner, onUpdateScore, isAdmin }: Br
   };
 
   return (
-    <div className="flex gap-12 overflow-x-auto pb-8 min-h-[400px] scrollbar-hide">
-      {sortedRoundKeys.map((roundNum, idx) => (
-        <div key={roundNum} className="flex flex-col justify-around gap-8 min-w-[240px]">
-          <h4 className="text-[10px] font-black text-stone-600 uppercase tracking-[0.2em] mb-4 text-center">
-            {getRoundName(roundNum)}
-          </h4>
-          
-          <div className="flex-1 flex flex-col justify-around gap-12">
-            {rounds[roundNum].sort((a, b) => a.matchNumber - b.matchNumber).map((match) => (
-              <MatchNode 
-                key={match.id} 
-                match={match} 
-                onSetWinner={onSetWinner} 
-                onUpdateScore={onUpdateScore}
-                isAdmin={isAdmin}
-                isLastRound={roundNum === maxRound}
-                isSemiFinal={roundNum === maxRound - 1 && maxRound > 1}
-              />
-            ))}
+    <div className="relative group/brackets">
+      {/* Scroll indicator for mobile */}
+      <div className="md:hidden absolute -top-8 right-0 flex items-center gap-1 text-[8px] font-black text-amber-500 uppercase tracking-widest animate-pulse z-10">
+        Arraste para o lado <ChevronRight className="w-3 h-3" />
+      </div>
+
+      <div className="flex gap-8 md:gap-12 overflow-x-auto pb-8 min-h-[400px] scrollbar-hide cursor-grab active:cursor-grabbing">
+        {sortedRoundKeys.map((roundNum) => (
+          <div key={roundNum} className="flex flex-col justify-around gap-6 md:gap-8 min-w-[220px] md:min-w-[240px]">
+            <h4 className="text-[9px] md:text-[10px] font-black text-stone-600 uppercase tracking-[0.2em] mb-4 text-center">
+              {getRoundName(roundNum)}
+            </h4>
+            
+            <div className="flex-1 flex flex-col justify-around gap-8 md:gap-12">
+              {rounds[roundNum].sort((a, b) => a.matchNumber - b.matchNumber).map((match) => (
+                <MatchNode 
+                  key={match.id} 
+                  match={match} 
+                  onSetWinner={onSetWinner} 
+                  onUpdateScore={onUpdateScore}
+                  isAdmin={isAdmin}
+                  isLastRound={roundNum === maxRound}
+                  isSemiFinal={roundNum === maxRound - 1 && maxRound > 1}
+                />
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
+      
+      {/* Fading edge indicator */}
+      <div className="absolute top-0 right-0 bottom-8 w-12 bg-gradient-to-l from-stone-950 to-transparent pointer-events-none opacity-0 group-hover/brackets:opacity-100 transition-opacity" />
     </div>
   );
 }
@@ -68,7 +77,7 @@ function MatchNode({
   isSemiFinal 
 }: { 
   match: Match; 
-  onSetWinner?: (matchId: string, winnerId: string) => void; 
+  onSetWinner?: (matchId: string, winnerId: string, reason?: Match['winnerReason']) => void; 
   onUpdateScore?: (matchId: string, competitor: 'A' | 'B', score: number) => void; 
   isAdmin?: boolean; 
   isLastRound: boolean;
@@ -83,11 +92,11 @@ function MatchNode({
       className="relative group/match"
     >
       {/* Container da Luta */}
-      <div className="bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden shadow-2xl backdrop-blur-sm w-[240px]">
+      <div className="bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden shadow-2xl backdrop-blur-sm w-[220px] md:w-[240px]">
         {/* Competitor A */}
         <MatchCompetitorRow 
           match={match}
-          competitor={match.competitorA} 
+          competitor={match.competitorA ? { ...match.competitorA, totalScore: match.totalScoreA } : null} 
           position="competitorA"
           isWinner={match.winnerId === match.competitorA?.athleteId}
           isLoser={isFinished && match.winnerId !== match.competitorA?.athleteId}
@@ -95,25 +104,27 @@ function MatchNode({
           onClick={() => isAdmin && !isFinished && match.competitorA && onSetWinner?.(match.id, match.competitorA.athleteId)}
           onScoreChange={(val) => onUpdateScore?.(match.id, 'A', val)}
           rank={
+            match.competitorA?.isBye ? null :
             isLastRound && isFinished ? (match.winnerId === match.competitorA?.athleteId ? '1º' : '2º') :
             isSemiFinal && isFinished && match.winnerId !== match.competitorA?.athleteId ? '3º' : null
           }
           color="blue"
           canClick={isAdmin && !!match.competitorA && !match.competitorA.isBye && !isFinished}
           isAdmin={isAdmin}
+          roundScore={match.winnerRounds?.a}
         />
         
         {/* Separador Central */}
         <div className="h-px bg-white/5 flex items-center justify-center relative">
-          <div className="absolute bg-[#0a0a0a] px-2 text-[8px] font-black text-stone-600 uppercase tracking-tighter border border-white/5 rounded-full">
-            LUTA #{match.matchNumber}
+          <div className="absolute bg-[#0a0a0a] px-2 text-[8px] font-black text-stone-400 uppercase tracking-tighter border border-white/5 rounded-full">
+            {match.courtId ? `Q${match.courtId} • #${match.matchSequence}` : `LUTA #${match.matchNumber}`}
           </div>
         </div>
 
         {/* Competidor B */}
         <MatchCompetitorRow 
           match={match}
-          competitor={match.competitorB} 
+          competitor={match.competitorB ? { ...match.competitorB, totalScore: match.totalScoreB } : null} 
           position="competitorB"
           isWinner={match.winnerId === match.competitorB?.athleteId}
           isLoser={isFinished && match.winnerId !== match.competitorB?.athleteId}
@@ -121,12 +132,14 @@ function MatchNode({
           onClick={() => isAdmin && !isFinished && match.competitorB && onSetWinner?.(match.id, match.competitorB.athleteId)}
           onScoreChange={(val) => onUpdateScore?.(match.id, 'B', val)}
           rank={
+            match.competitorB?.isBye ? null :
             isLastRound && isFinished ? (match.winnerId === match.competitorB?.athleteId ? '1º' : '2º') :
             isSemiFinal && isFinished && match.winnerId !== match.competitorB?.athleteId ? '3º' : null
           }
           color="red"
           canClick={isAdmin && !!match.competitorB && !match.competitorB.isBye && !isFinished}
           isAdmin={isAdmin}
+          roundScore={match.winnerRounds?.b}
         />
       </div>
 
@@ -138,8 +151,8 @@ function MatchNode({
             if (!isAdmin || isFinished) return;
             const scoreA = match.competitorA?.score || 0;
             const scoreB = match.competitorB?.score || 0;
-            if (scoreA > scoreB) onSetWinner?.(match.id, match.competitorA!.athleteId);
-            else if (scoreB > scoreA) onSetWinner?.(match.id, match.competitorB!.athleteId);
+            if (scoreA > scoreB) onSetWinner?.(match.id, match.competitorA!.athleteId, 'points');
+            else if (scoreB > scoreA) onSetWinner?.(match.id, match.competitorB!.athleteId, 'points');
             else alert("Luta empatada! Defina o vencedor manualmente clicando no atleta.");
           }}
           className={cn(
@@ -180,7 +193,7 @@ function MatchNode({
   );
 }
 
-function MatchCompetitorRow({ match, competitor, position, ...props }: any) {
+function MatchCompetitorRow({ match, competitor, position, onSetWinner, ...props }: any) {
   const { isOver, setNodeRef: setDroppableRef } = useDroppable({
     id: `bracket_target:${match.id}:${position}`,
     disabled: !!competitor || !props.isAdmin
@@ -206,6 +219,8 @@ function MatchCompetitorRow({ match, competitor, position, ...props }: any) {
         <CompetitorRow 
           competitor={competitor} 
           isDragging={isDragging}
+          onSetWinner={(reason: any) => match.status !== 'finished' && onSetWinner?.(match.id, competitor.athleteId, reason)}
+          winnerReason={match.winnerReason}
           {...props} 
         />
       </div>
@@ -218,25 +233,29 @@ function CompetitorRow({
   isWinner, 
   isLoser, 
   isSuggested, 
-  onClick, 
   onScoreChange, 
   color, 
   canClick, 
   isAdmin, 
   isDragging,
-  rank 
+  winnerReason,
+  onSetWinner,
+  rank,
+  roundScore
 }: { 
   competitor?: MatchCompetitor; 
   isWinner: boolean; 
   isLoser: boolean; 
   isSuggested?: boolean; 
-  onClick: () => void; 
   onScoreChange: (val: number) => void; 
   color: 'blue' | 'red'; 
   canClick: boolean; 
   isAdmin?: boolean; 
   isDragging?: boolean;
+  winnerReason?: string;
+  onSetWinner?: (reason: 'points' | 'wo') => void;
   rank?: string | null;
+  roundScore?: number;
 }) {
   if (!competitor) {
     return (
@@ -249,7 +268,7 @@ function CompetitorRow({
 
   return (
     <div 
-      onClick={canClick ? onClick : undefined}
+      onClick={canClick ? () => onSetWinner?.('points') : undefined}
       className={cn(
         "p-4 py-3 flex items-center justify-between transition-all relative overflow-hidden",
         canClick ? "cursor-pointer hover:bg-white/5 active:scale-95" : "cursor-default",
@@ -283,6 +302,22 @@ function CompetitorRow({
             {competitor.isBye ? 'Sorteio de Chave' : competitor.academy}
           </span>
         </div>
+
+        {/* Botão de W.O. específico para Admin */}
+        {isAdmin && !competitor.isBye && !isWinner && !isLoser && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (confirm(`Confirmar vitória por W.O. para ${competitor.name}?`)) {
+                onSetWinner?.('wo');
+              }
+            }}
+            className="ml-2 p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all group/wo"
+            title="Marcar como W.O."
+          >
+            <AlertCircle className="w-3 h-3" />
+          </button>
+        )}
       </div>
 
       <div className="flex items-center gap-2 z-10">
@@ -298,8 +333,23 @@ function CompetitorRow({
             )}
           />
         ) : (
-          <div className="text-xl font-black text-white/20 px-2 italic">
-            {competitor.score || 0}
+          <div className="flex flex-col items-end">
+            <div className="text-xl font-black text-white/20 px-2 italic tabular-nums flex items-baseline gap-1">
+              {roundScore !== undefined ? roundScore : (competitor.score || 0)}
+              <span className="text-[7px] not-italic opacity-30 uppercase">Rds</span>
+            </div>
+            {/* Se tivermos a soma total (totalScoreA/B), mostramos aqui */}
+            {(competitor as any).totalScore !== undefined && (
+              <span className="text-[8px] font-bold text-stone-600 px-2 -mt-1">
+                {(competitor as any).totalScore} pts total
+              </span>
+            )}
+            {/* Fallback caso roundsScore não esteja definido mas queiramos mostrar que o score atual é o round se for <= 3 */}
+            {roundScore === undefined && competitor.score !== undefined && competitor.score > 10 && (
+              <span className="text-[8px] font-bold text-stone-600 px-2 -mt-1">
+                {competitor.score} pts
+              </span>
+            )}
           </div>
         )}
 
@@ -316,7 +366,7 @@ function CompetitorRow({
                 {rank === '1º' && <Trophy className="w-2.5 h-2.5" />}
                 {rank} Lugar
               </>
-            ) : 'Vencedor'}
+            ) : winnerReason === 'wo' ? 'Venceu (W.O.)' : 'Vencedor'}
           </div>
         )}
       </div>

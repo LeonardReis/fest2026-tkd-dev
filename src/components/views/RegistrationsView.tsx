@@ -265,59 +265,57 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
       </header>
 
       {!isAdding && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-2">
-          <Card className="p-6 border-white/5 bg-gradient-to-br from-blue-900/10 to-transparent">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-2 px-4 sm:px-0">
+          <Card className="p-4 sm:p-6 border-white/5 bg-gradient-to-br from-blue-900/10 to-transparent">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
-                <Users className="w-5 h-5 text-blue-400" />
+              <div className="p-2 sm:p-3 bg-blue-500/10 rounded-xl border border-blue-500/20">
+                <Users className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400" />
               </div>
               <div>
-                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Inscritos Totais</p>
-                <p className="text-2xl font-black text-white">{overviewStats.totalInscriptions}</p>
+                <p className="text-[8px] sm:text-[10px] text-stone-400 font-bold uppercase tracking-widest">Inscritos Totais</p>
+                <p className="text-xl sm:text-2xl font-black text-white">{overviewStats.totalInscriptions}</p>
               </div>
             </div>
           </Card>
 
-          <Card className="p-6 border-white/5 bg-gradient-to-br from-emerald-900/10 to-transparent">
+          <Card className="p-4 sm:p-6 border-white/5 bg-gradient-to-br from-emerald-900/10 to-transparent">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
-                <Wallet className="w-5 h-5 text-emerald-400" />
+              <div className="p-2 sm:p-3 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                <Wallet className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
               </div>
               <div className="flex-1">
-                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Arrecadação Líquida</p>
-                <p className="text-2xl font-black text-emerald-400 tabular-nums">
-                  <span className="text-sm text-emerald-500/50 mr-1">R$</span> 
+                <p className="text-[8px] sm:text-[10px] text-stone-400 font-bold uppercase tracking-widest">Arrecadação Líquida</p>
+                <p className="text-xl sm:text-2xl font-black text-emerald-400 tabular-nums">
+                  <span className="text-xs text-emerald-500/50 mr-1">R$</span> 
                   {overviewStats.totalPaid.toFixed(2).replace('.', ',')}
                 </p>
-                <p className="text-[8px] text-stone-600 font-bold uppercase tracking-widest">Bruto: {overviewStats.totalGrossPaid.toFixed(0)} | CB: {overviewStats.totalCashbackPaid.toFixed(0)}</p>
               </div>
             </div>
           </Card>
 
-          <Card className="p-6 border-white/5 bg-gradient-to-br from-amber-900/10 to-transparent">
+          <Card className="p-4 sm:p-6 border-white/5 bg-gradient-to-br from-amber-900/10 to-transparent">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-amber-500/10 rounded-xl border border-amber-500/20">
-                <Clock className="w-5 h-5 text-amber-400" />
+              <div className="p-2 sm:p-3 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400" />
               </div>
               <div className="flex-1">
-                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Líquido a Receber</p>
-                <p className="text-2xl font-black text-amber-400 tabular-nums">
-                  <span className="text-sm text-amber-500/50 mr-1">R$</span> 
+                <p className="text-[8px] sm:text-[10px] text-stone-400 font-bold uppercase tracking-widest">Líquido a Receber</p>
+                <p className="text-xl sm:text-2xl font-black text-amber-400 tabular-nums">
+                  <span className="text-xs text-amber-500/50 mr-1">R$</span> 
                   {overviewStats.totalPending.toFixed(2).replace('.', ',')}
                 </p>
-                <p className="text-[8px] text-stone-600 font-bold uppercase tracking_widest">Bruto: {overviewStats.totalGrossPending.toFixed(0)} | CB: {overviewStats.totalCashbackPending.toFixed(0)}</p>
               </div>
             </div>
           </Card>
 
-          <Card className="p-6 border-white/5 bg-gradient-to-br from-purple-900/10 to-transparent">
+          <Card className="p-4 sm:p-6 border-white/5 bg-gradient-to-br from-purple-900/10 to-transparent">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-purple-500/10 rounded-xl border border-purple-500/20">
-                <TrendingUp className="w-5 h-5 text-purple-400" />
+              <div className="p-2 sm:p-3 bg-purple-500/10 rounded-xl border border-purple-500/20">
+                <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-purple-400" />
               </div>
               <div>
-                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Conversão</p>
-                <p className="text-2xl font-black text-white">{overviewStats.conversionRate}%</p>
+                <p className="text-[8px] sm:text-[10px] text-stone-400 font-bold uppercase tracking-widest">Conversão</p>
+                <p className="text-xl sm:text-2xl font-black text-white">{overviewStats.conversionRate}%</p>
               </div>
             </div>
           </Card>
@@ -493,8 +491,9 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
         </Card>
       ) : (
         <Card className="border-white/5 bg-white/[0.02]">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[800px]">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-white/5 border-b border-white/5">
                   <th className="px-8 py-5 text-[10px] font-black text-stone-500 uppercase tracking-[0.2em]">Competidor</th>
@@ -596,6 +595,70 @@ export function RegistrationsView({ profile, registrations, athletes, academies,
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden space-y-4 p-4">
+            {filteredRegs.map(reg => {
+              const athlete = athletes.find(a => a.id === reg.athleteId);
+              return (
+                <div key={reg.id} className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/5">
+                        <span className="text-sm font-black text-white">{athlete?.name.charAt(0)}</span>
+                      </div>
+                      <div>
+                        <p className="font-black text-white uppercase tracking-tight text-sm">{athlete?.name}</p>
+                        <p className="text-[9px] text-stone-500 uppercase font-black tracking-widest mt-1">
+                          {academies.find(ac => ac.id === reg.academyId)?.name || 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className={cn(
+                      "px-2 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest",
+                      reg.paymentStatus === 'Pago' ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" :
+                      reg.paymentStatus === 'Em Análise' ? "bg-blue-500/10 text-blue-500 border-blue-500/20" :
+                      "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                    )}>
+                      {reg.paymentStatus}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {reg.categories.map(cat => (
+                      <span key={cat} className="px-2 py-0.5 bg-black/20 border border-white/5 rounded text-[8px] font-black text-stone-400 uppercase">
+                        {cat}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                    <p className="text-[9px] text-stone-600 font-bold uppercase">
+                      {new Date(reg.createdAt).toLocaleDateString('pt-BR')}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button variant="ghost" className="p-2 bg-white/5 h-8 w-8" onClick={() => {
+                        const text = `Olá! Inscrição do *${athlete?.name}* está *${reg.paymentStatus}*`;
+                        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                      }}>
+                        <span className="text-[8px] font-black text-emerald-500 uppercase">WA</span>
+                      </Button>
+                      {profile?.role === 'admin' && (
+                        <Button variant="ghost" className="p-2 bg-white/5 h-8 w-8" onClick={() => handlePaymentStatus(reg.id, reg.paymentStatus)}>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                        </Button>
+                      )}
+                      {(profile?.role === 'admin' || reg.paymentStatus === 'Pendente') && (
+                        <Button variant="ghost" className="p-2 bg-white/5 h-8 w-8" onClick={() => handleDeleteRegistration(reg.id)}>
+                          <Trash2 className="w-4 h-4 text-red-500" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
           {filteredRegs.length === 0 && (
             <div className="py-24 text-center">

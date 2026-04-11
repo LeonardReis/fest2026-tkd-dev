@@ -413,3 +413,88 @@ export const SCHEDULE: { time: string; activity: string; location: string; type:
   { time: '19:30', activity: 'Previsão de Encerramento', location: 'Geral', type: 'ceremony' },
 ];
 
+/**
+ * Retorna o peso de prioridade de uma categoria com base no turno.
+ * Pesos menores = Maior prioridade (aparecem primeiro na fila).
+ */
+export function getCategoryPriorityWeight(groupKey: string, modality: 'Kyorugui' | 'Poomsae', turno: 'manha' | 'tarde'): number {
+  const k = groupKey.toLowerCase();
+  
+  // Pesos de idade (base)
+  let ageWeight = 100;
+  if (k.includes('fraldinha')) ageWeight = 10;
+  else if (k.includes('mirim')) ageWeight = 20;
+  else if (k.includes('infantil')) ageWeight = 30;
+  else if (k.includes('cadete')) ageWeight = 40;
+  else if (k.includes('juvenil')) ageWeight = 50;
+  else if (k.includes('adulto')) ageWeight = 60;
+  else if (k.includes('master')) ageWeight = 70;
+
+  if (modality === 'Kyorugui') {
+    // Manhã: Juvenil, Adulto, Master primeiro
+    if (turno === 'manha') {
+      if (ageWeight >= 50) return ageWeight - 100; // -50, -40, -30
+      return ageWeight;
+    }
+    // Tarde: Cadete, Infantil, Mirim, Fraldinha primeiro
+    if (ageWeight <= 40) return ageWeight - 100;
+    return ageWeight;
+  }
+
+  if (modality === 'Poomsae') {
+    // Manhã: Fraldinha, Mirim, Cadete primeiro
+    if (turno === 'manha') {
+      if (ageWeight <= 40) return ageWeight - 100;
+      return ageWeight;
+    }
+    // Tarde: Juvenil, Adulto, Master primeiro
+    if (ageWeight >= 50) return ageWeight - 100;
+    return ageWeight;
+  }
+
+  return ageWeight;
+}
+
+/**
+ * Determina o turno atual com base no horário do sistema.
+ * Manhã: até às 12:30 | Tarde: após 12:30
+ */
+export function getCurrentTurno(): 'manha' | 'tarde' {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const totalMinutes = hours * 60 + minutes;
+  
+  // 12:30 = 750 minutos
+  return totalMinutes <= 750 ? 'manha' : 'tarde';
+}
+/**
+ * Sanitiza um texto para uso em IDs de documentos do Firestore.
+ * - Remove acentos
+ * - Converte para lowercase
+ * - Substitui caracteres não-alfanuméricos por '_'
+ * - Colapsa múltiplos '_' em um só
+ */
+export function sanitizeForId(text: string): string {
+  if (!text) return 'generic_id';
+  
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '_')     // Tudo que não é letra/número vira _
+    .replace(/_{2,}/g, '_')         // __ -> _
+    .replace(/^_+|_+$/g, '');       // Remove _ no início e fim
+}
+
+/**
+ * Retorna o tempo estimado em minutos para uma luta/apresentação.
+ * Usado para balanceamento de quadras.
+ */
+export function getModalityEstimatedTime(groupKey: string): number {
+  const g = groupKey.toLowerCase();
+  if (g.includes('poomsae')) return 2;
+  if (g.includes('tábuas') || g.includes('kyopa')) return 1.5;
+  if (g.includes('festival')) return 1;
+  return 5; // Kyorugui (Default)
+}
