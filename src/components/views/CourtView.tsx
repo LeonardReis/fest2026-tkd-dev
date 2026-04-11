@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, Clock, AlertCircle, Check, Ban, Flag, Trophy, User as UserIcon, Keyboard, Play, PlaySquare, RotateCcw, FileText, Radio, Loader2, Mic } from 'lucide-react';
+import { Shield, Clock, AlertCircle, Check, Ban, Flag, Trophy, User as UserIcon, Keyboard, Play, PlaySquare, RotateCcw, FileText, Radio, Loader2, Mic, PlusSquare, MinusSquare, ChevronDown, ChevronUp } from 'lucide-react';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, onSnapshot, query, collection, where, orderBy, limit, updateDoc, serverTimestamp, runTransaction, writeBatch } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
-import { validateCourtSession, submitPoomsaeScore, callMatch, finishMatch, batchCallMatches, batchResetCourtMatches, processCourtRanking, PodiumData, updateMatchRoundScore, finishAndCycleMatch } from '../../services/courtService';
+import { validateCourtSession, submitPoomsaeScore, callMatch, finishMatch, batchCallMatches, batchResetCourtMatches, processCourtRanking, PodiumData, updateMatchRoundScore, finishAndCycleMatch, PodiumWinner } from '../../services/courtService';
 import { CourtSession, Match } from '../../types';
 import { BeltBadge } from '../BeltBadge';
-import { Button, Card } from '../ui';
+import { Button, Card, cn } from '../ui';
 import { KyopaScoreboard } from '../KyopaScoreboard';
 import { User } from 'firebase/auth';
 import { UserProfile } from '../../types';
@@ -41,6 +41,7 @@ export function CourtView({ sessionId, user, profile, authInitialized, deviceId 
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState(false);
+  const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
 
   // Verificar persistência do PIN no sessionStorage
   useEffect(() => {
@@ -193,192 +194,148 @@ export function CourtView({ sessionId, user, profile, authInitialized, deviceId 
 
     return (
       <div className="min-h-screen bg-black flex flex-col font-sans select-none overflow-hidden text-white">
-      {/* HUD Superior Ultra-Contraste */}
-      <header className="h-20 bg-stone-900 border-b-2 border-white/10 flex items-center justify-between px-8">
-        <div className="flex items-center gap-6">
+      {/* HUD Superior Compacto */}
+      <header className="h-14 bg-stone-950 border-b border-white/10 flex items-center justify-between px-4 sm:px-8 shrink-0 z-50">
+        <div className="flex items-center gap-4">
           <div className="flex flex-col">
-            <h1 className="text-3xl font-black text-red-600 uppercase italic tracking-tighter leading-none">
+            <h1 className="text-base sm:text-lg font-black text-white uppercase italic tracking-tighter leading-none group flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-red-600 animate-pulse" />
               {session.label}
             </h1>
-            <div className="flex flex-col">
-              <p className="text-[10px] text-stone-500 font-black uppercase tracking-widest mt-1">
-                {session.type === 'poomsae' && judgeIndex !== 0 
-                  ? `Árbitro: Julgador ${judgeIndex}` 
-                  : session.refereeName 
-                    ? `Árbitro: ${session.refereeName} (MESÁRIO)` 
-                    : 'Console do Mesário Central'}
-              </p>
-              {activeMatch?.groupKey && (
-                <div className="flex items-center gap-2 mt-1">
-                  <div className="w-1 h-1 rounded-full bg-red-600" />
-                  <span className="text-[9px] font-black text-white/60 uppercase tracking-widest">{activeMatch.groupKey}</span>
-                </div>
-              )}
-            </div>
+            <p className="text-[8px] text-stone-500 font-black uppercase tracking-widest mt-0.5">
+              {judgeIndex === 0 ? 'Mesa Central' : `Árbitro #${judgeIndex}`}
+            </p>
           </div>
-          <div className="h-8 w-px bg-white/5" />
-          <div className="flex items-center gap-2 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/30">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">LIVE</span>
-          </div>
-          {/* Duelo ativo: categoria + atletas em destaque no header */}
-          {activeMatch && judgeIndex === 0 && (
-            <div className="hidden md:flex flex-col items-start gap-1 pl-4 border-l border-white/10">
-              {activeMatch.groupKey && (
-                <div className="px-2 py-0.5 bg-red-600/20 border border-red-600/30 rounded-full">
-                  <span className="text-[8px] font-black text-red-400 uppercase tracking-widest truncate max-w-[260px] block">{activeMatch.groupKey}</span>
-                </div>
-              )}
-              <p className="text-xs font-black text-white uppercase tracking-tight leading-none">
-                <span className="text-blue-400">{activeMatch.competitorA?.name || '---'}</span>
-                <span className="text-stone-600 italic px-2 text-[10px]">vs</span>
-                <span className="text-red-400">{activeMatch.competitorB?.name || '---'}</span>
-              </p>
-            </div>
-          )}
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-6">
           {judgeIndex === 0 && (
-            <div className="flex items-center gap-2 mr-4 border-r border-white/10 pr-4">
+            <div className="flex items-center gap-2 pr-3 sm:pr-6 border-r border-white/10">
               <Button 
                 disabled={isProcessingRanking}
                 onClick={async () => {
-                   if (!confirm("Confirmar processamento de ranking para as categorias finalizadas nesta quadra? Isso atualizará os pontos das academias.")) return;
+                   if (!confirm("Confirmar processamento de ranking?")) return;
                    setIsProcessingRanking(true);
                    try {
                       const result = await processCourtRanking(Number(session.courtId), undefined, session.type as any);
-                      if (result.success && result.winners) {
-                        setPodiumData(result.winners);
-                      }
-                    } catch (e: any) {
-                      alert("Erro ao processar ranking: " + e.message);
-                    } finally {
-                      setIsProcessingRanking(false);
-                    }
+                      if (result.success && result.winners) setPodiumData(result.winners);
+                    } catch (e: any) { alert(e.message); } finally { setIsProcessingRanking(false); }
                 }}
                 variant="ghost" 
-                className="h-10 px-4 text-[10px] font-black uppercase tracking-widest gap-2 bg-amber-500/10 border border-amber-500/20 text-amber-500 hover:bg-amber-500/20"
+                className="h-8 px-3 text-[9px] font-black uppercase tracking-widest gap-2 bg-amber-500/10 border border-amber-500/20 text-amber-500 hover:bg-amber-500/20"
               >
-                <Trophy className={`w-4 h-4 ${isProcessingRanking ? 'animate-spin' : ''}`} />
-                {isProcessingRanking ? 'Processando...' : 'Ver Pódio'}
+                <Trophy className="w-3.5 h-3.5" />
+                <span className="hidden xs:inline">Pódio</span>
               </Button>
             </div>
           )}
-          <div className="text-right">
-            <div className="text-xl font-black text-white leading-none">{matches.length}</div>
-            <div className="text-[8px] text-stone-500 uppercase font-black tracking-widest">Fila Restante</div>
-          </div>
-          <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
-            <Shield className="w-5 h-5 text-stone-400" />
+          
+          <div className="flex items-center gap-4">
+            <div className="hidden xs:flex flex-col items-end">
+              <span className="text-[10px] font-black text-white leading-none">{matches.length}</span>
+              <span className="text-[7px] text-stone-600 uppercase font-black tracking-widest">Fila</span>
+            </div>
+            <div className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+              <Shield className="w-4 h-4 text-stone-500" />
+            </div>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 flex overflow-hidden">
-        <section className="flex-1 flex flex-col bg-black relative">
-          {/* Painel de Comando Live - Estilo Premium do Coordenação */}
-          {judgeIndex === 0 && matches.length > 0 && (
-            <div className="p-6 border-b border-white/5 bg-gradient-to-b from-stone-900/50 to-transparent">
-               <div className="bg-black/40 border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
-                 <div className="bg-gradient-to-r from-red-600/20 to-transparent p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                   <div className="flex items-center gap-3">
-                     <div className="w-10 h-10 rounded-xl bg-red-600 flex items-center justify-center shadow-[0_0_15px_rgba(220,38,38,0.4)]">
-                       <Radio className="w-5 h-5 text-white animate-pulse" />
-                     </div>
-                     <div>
-                       <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Controle de Fila</p>
-                       <div className="flex items-center gap-2">
-                         <h4 className="text-white font-black uppercase text-xs tracking-tight">Painel de Comando Live</h4>
-                         <span className="px-1.5 py-0.5 bg-amber-500 rounded text-[8px] font-black text-black">Q{session.courtId}</span>
-                       </div>
-                     </div>
-                   </div>
-                   
-                   <div className="flex items-center gap-2">
-                     <Button 
-                       onClick={async () => {
-                         const toCall = matches.filter(m => m.status === 'scheduled').map(m => m.id);
-                         if (toCall.length === 0) return;
-                         setIsProcessingRanking(true); // Reusando estado de loading para simplicidade ou criar novo
-                         try {
-                           await batchCallMatches(toCall);
-                         } finally {
-                           setIsProcessingRanking(false);
-                         }
-                       }}
-                       disabled={isProcessingRanking || !matches.some(m => m.status === 'scheduled')}
-                       variant="ghost"
-                       className="h-10 px-4 text-[9px] font-black uppercase tracking-widest gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20 disabled:opacity-30"
-                     >
-                       <PlaySquare className="w-3.5 h-3.5" />
-                       Chamar Todas
-                     </Button>
+      <main className="flex-1 flex flex-col overflow-hidden">
+        {judgeIndex === 0 && (
+          <div className="bg-stone-900 border-b border-white/5 flex flex-col sm:flex-row items-stretch sm:items-center px-4 sm:px-8 py-2 gap-4 shrink-0 shadow-lg">
+            {/* Próximas Lutas (Pills) */}
+            <div className="flex-1 flex items-center gap-3 overflow-x-auto no-scrollbar scroll-smooth snap-x">
+              {nextMatches.length > 0 ? (
+                nextMatches.map((m, i) => (
+                  <div 
+                    key={m.id} 
+                    className={cn(
+                      "snap-start shrink-0 h-10 px-4 rounded-xl border flex items-center gap-3 transition-all",
+                      i === 0 ? 'bg-blue-600/10 border-blue-500/30' : 'bg-white/5 border-white/5'
+                    )}
+                  >
+                    <span className="text-[8px] font-black text-white/40">#{m.matchSequence}</span>
+                    <div className="flex items-center gap-2">
+                       <span className="text-[10px] font-black text-white uppercase whitespace-nowrap">{m.competitorA?.name?.split(' ')[0]}</span>
+                       <span className="text-[8px] font-bold text-stone-600">vs</span>
+                       <span className="text-[10px] font-black text-white uppercase whitespace-nowrap">{m.competitorB?.name?.split(' ')[0]}</span>
+                    </div>
+                    {i === 0 && <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" />}
+                  </div>
+                ))
+              ) : (
+                <span className="text-[10px] font-black text-stone-600 uppercase italic">Fila Vazia...</span>
+              )}
+            </div>
 
-                     <Button 
-                       onClick={async () => {
-                         const confirmClear = prompt("Para limpar TODA a fila desta quadra, digite LIMPAR:");
-                         if (confirmClear !== 'LIMPAR') return;
-                         setIsProcessingRanking(true);
-                         try {
-                           const toReset = matches.filter(m => m.status === 'live' || m.status === 'scheduled').map(m => m.id);
-                           if (toReset.length > 0) await batchResetCourtMatches(toReset);
-                         } finally {
-                           setIsProcessingRanking(false);
-                         }
-                       }}
-                       disabled={isProcessingRanking || matches.length === 0}
-                       variant="ghost"
-                       className="h-10 px-4 text-[9px] font-black uppercase tracking-widest gap-2 bg-stone-500/10 border border-white/5 text-stone-400 hover:bg-red-500/10 hover:text-red-500 disabled:opacity-30"
-                     >
-                       <RotateCcw className="w-3.5 h-3.5" />
-                       Limpar Fila
-                     </Button>
-                   </div>
+            {/* Ações Rápidas & Progresso */}
+            <div className="flex items-center gap-3 pl-0 sm:pl-6 border-t sm:border-t-0 sm:border-l border-white/10 pt-2 sm:pt-0">
+               <div className="flex items-center gap-1.5 mr-2">
+                 <div className="w-20 sm:w-24 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-red-600 transition-all duration-1000"
+                      style={{ width: `${(matches.filter(m => m.status === 'finished').length / (matches.length || 1)) * 100}%` }}
+                    />
                  </div>
-                 
-                 <div className="p-4 bg-white/[0.02] flex items-center gap-6">
-                   {activeMatch ? (
-                      <div className="flex-1 flex items-center justify-between animate-in zoom-in-95 duration-500">
-                        <div className="flex items-center gap-4">
-                          <div className="px-3 py-1 bg-emerald-500 text-white text-[9px] font-black rounded-lg uppercase tracking-tighter shadow-[0_0_10px_rgba(16,185,129,0.3)]">EM QUADRA</div>
-                          <div className="flex flex-col">
-                            <p className="text-white font-black uppercase tracking-tight text-sm">
-                              {activeMatch.competitorA?.name} <span className="text-stone-600 italic px-2">VS</span> {activeMatch.competitorB?.name || '---'}
-                            </p>
-                            <div className="flex items-center gap-4 mt-0.5">
-                              <span className="text-[9px] font-bold text-stone-500 uppercase tracking-widest">{activeMatch.competitorA?.academy || 'Academia A'}</span>
-                              <div className="w-1 h-1 rounded-full bg-stone-800" />
-                              <span className="text-[9px] font-bold text-stone-500 uppercase tracking-widest">{activeMatch.competitorB?.academy || 'Academia B'}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                     <div className="flex-1 text-stone-600 text-[10px] font-bold uppercase italic flex items-center gap-2">
-                       <div className="w-1.5 h-1.5 rounded-full bg-stone-700 animate-pulse" />
-                       Aguardando chamada...
-                     </div>
-                   )}
-                   
-                   <div className="flex items-center gap-2 border-l border-white/5 pl-6">
-                     <span className="text-[9px] font-black text-stone-500 uppercase tracking-widest">Progresso</span>
-                     <div className="w-32 h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
-                       <div 
-                         className="h-full bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.5)] transition-all duration-1000" 
-                         style={{ width: `${(matches.filter(m => m.status === 'finished').length / matches.length) * 100}%` }}
-                       />
-                     </div>
-                     <span className="text-[10px] font-black text-white ml-1">
-                       {matches.filter(m => m.status === 'finished').length}/{matches.length}
-                     </span>
-                   </div>
-                 </div>
+                 <span className="text-[9px] font-black text-stone-500">{matches.filter(m => m.status === 'finished').length}/{matches.length}</span>
                </div>
+
+               <div className="flex items-center gap-2">
+                 <Button 
+                   onClick={async () => {
+                     const toCall = matches.filter(m => m.status === 'scheduled').map(m => m.id);
+                     if (toCall.length === 0) return;
+                     setIsProcessingRanking(true);
+                     try { await batchCallMatches(toCall); } finally { setIsProcessingRanking(false); }
+                   }}
+                   disabled={isProcessingRanking || !matches.some(m => m.status === 'scheduled')}
+                   variant="ghost"
+                   className="h-8 px-3 text-[8px] font-black uppercase tracking-widest gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20"
+                 >
+                   <PlaySquare className="w-3.5 h-3.5" />
+                   Chamar
+                 </Button>
+
+                 <Button 
+                   onClick={async () => {
+                     const confirmClear = prompt("Para limpar TODA a fila, digite LIMPAR:");
+                     if (confirmClear !== 'LIMPAR') return;
+                     setIsProcessingRanking(true);
+                     try {
+                        const toReset = matches.filter(m => m.status === 'live' || m.status === 'scheduled').map(m => m.id);
+                        if (toReset.length > 0) await batchResetCourtMatches(toReset);
+                     } finally { setIsProcessingRanking(false); }
+                   }}
+                   disabled={isProcessingRanking}
+                   variant="ghost"
+                   className="h-8 w-8 p-0 bg-stone-500/10 border border-white/5 text-stone-500 hover:text-red-500"
+                 >
+                   <RotateCcw className="w-3.5 h-3.5" />
+                 </Button>
+               </div>
+            </div>
+          </div>
+        )}
+
+        <section className="flex-1 flex flex-col bg-black relative overflow-y-auto">
+          {activeMatch && judgeIndex === 0 && (
+            <div className="px-8 py-2 border-b border-white/5 bg-white/[0.01]">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-2 py-1 rounded">Duelo Ativo</span>
+                  <p className="text-xs font-black text-white uppercase italic">
+                    {activeMatch.competitorA?.name} <span className="text-stone-700 mx-2">VS</span> {activeMatch.competitorB?.name}
+                  </p>
+                </div>
+                <div className="text-[8px] font-black text-stone-600 uppercase tracking-widest">{activeMatch.groupKey}</div>
+              </div>
             </div>
           )}
 
-          <AnimatePresence mode="wait">
+
+           <AnimatePresence mode="wait">
              {activeMatch ? (
                <ActiveMatchPanel 
                  key={activeMatch.id}
@@ -399,31 +356,6 @@ export function CourtView({ sessionId, user, profile, authInitialized, deviceId 
              )}
           </AnimatePresence>
         </section>
-
-        <aside className="w-80 bg-stone-900/40 border-l border-white/10 hidden lg:flex flex-col">
-          <div className="p-6 border-b border-white/5">
-            <h3 className="text-xs font-black text-stone-500 uppercase tracking-[0.2em] ">Fluxo da Quadra</h3>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-            {nextMatches.map((m, i) => (
-              <div key={m.id} className={`p-4 rounded-2xl border transition-all ${
-                i === 0 ? 'bg-white/10 border-white/20' : 
-                i < 2 ? 'bg-white/5 border-emerald-500/20' : 
-                'bg-white/5 border-transparent opacity-60'
-              }`}>
-                <div className="flex justify-between items-start mb-2">
-                  <div className="text-[10px] font-black text-stone-500 uppercase tracking-widest">{m.matchSequence} • {m.groupKey}</div>
-                  {i < 2 && (
-                    <span className="text-[8px] font-black bg-emerald-500 text-black px-1.5 py-0.5 rounded-full uppercase tracking-tighter">Prepara</span>
-                  )}
-                </div>
-                <div className="text-sm font-black text-white uppercase truncate">{m.competitorA?.name}</div>
-                {m.competitorB && <div className="text-xs font-bold text-stone-500 uppercase mt-1">vs {m.competitorB.name}</div>}
-              </div>
-            ))}
-            {nextMatches.length === 0 && <div className="text-center py-20 text-stone-700 font-black uppercase text-xs">Fila Concluída</div>}
-          </div>
-        </aside>
       </main>
 
       <footer className="h-10 bg-black border-t border-white/5 flex items-center justify-between px-8 text-[9px] font-black uppercase tracking-widest text-stone-600">
@@ -601,7 +533,7 @@ function ActiveMatchPanel({
   match: Match, session: CourtSession, judgeIndex: number | null, isLastOfGroup: boolean, nextMatchId: string | null, onPodium: (data: PodiumData) => void
 }) {
   if (session.type === 'poomsae') return <PoomsaeEngine match={match} session={session} judgeIndex={judgeIndex} isLastOfGroup={isLastOfGroup} nextMatchId={nextMatchId} onPodium={onPodium} />;
-  if (session.type === 'kyopa') return <KyopaEngine match={match} judgeIndex={judgeIndex} isLastOfGroup={isLastOfGroup} nextMatchId={nextMatchId} onPodium={onPodium} />;
+  if (session.type === 'kyopa') return <KyopaEngine match={match} session={session} judgeIndex={judgeIndex} isLastOfGroup={isLastOfGroup} nextMatchId={nextMatchId} onPodium={onPodium} />;
   return <KyoruguiEngine match={match} judgeIndex={judgeIndex} isLastOfGroup={isLastOfGroup} nextMatchId={nextMatchId} session={session} onPodium={onPodium} />;
 }
 
@@ -613,7 +545,6 @@ function KyoruguiEngine({
   const [isFinishing, setIsFinishing] = useState(false);
   const [activeRound, setActiveRound] = useState<1 | 2 | 3>(match.currentRound || 1);
   
-  // Inicializa rounds se não existirem
   const [rounds, setRounds] = useState(match.roundScores || {
     r1: { a: 0, b: 0, gamA: 0, gamB: 0 },
     r2: { a: 0, b: 0, gamA: 0, gamB: 0 },
@@ -629,6 +560,39 @@ function KyoruguiEngine({
     if (match.roundWinners) setRoundWinners(match.roundWinners);
     if (match.winnerRounds) setWinnerRounds(match.winnerRounds);
   }, [match.id, match.roundScores, match.currentRound, match.roundWinners, match.winnerRounds]);
+
+  // Atalhos de teclado para o Mesário
+  useEffect(() => {
+    if (judgeIndex !== 0) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      switch(e.key) {
+        case '1': updateScore('a', 1); break;
+        case '2': updateScore('a', 2); break;
+        case '3': updateScore('a', 3); break;
+        case 'q': updateScore('gamA', 1); break;
+        case 'a': updateScore('gamA', -1); break;
+        
+        case '7': updateScore('b', 1); break;
+        case '8': updateScore('b', 2); break;
+        case '9': updateScore('b', 3); break;
+        case 'p': updateScore('gamB', 1); break;
+        case 'l': updateScore('gamB', -1); break;
+
+        case 'Enter': 
+          if (winnerRounds.a >= 2 || winnerRounds.b >= 2) {
+             const winnerId = winnerRounds.a > winnerRounds.b ? match.competitorA?.athleteId : match.competitorB?.athleteId;
+             handleFinish(winnerId);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [match.id, activeRound, judgeIndex, winnerRounds, rounds]);
 
   if (judgeIndex !== 0) {
     return (
@@ -653,7 +617,6 @@ function KyoruguiEngine({
       }
     };
     setRounds(newRounds);
-    // Persiste no Firebase para todos verem
     try {
       await updateMatchRoundScore(match.id, activeRound, newRounds);
     } catch (e) {}
@@ -673,7 +636,6 @@ function KyoruguiEngine({
     setWinnerRounds(newWinnerRounds);
 
     try {
-      // Avança o round automaticamente se for o 1º ou 2º e não houver decisão final
       const isFinalDecision = newWinnerRounds.a === 2 || newWinnerRounds.b === 2 || activeRound === 3;
       
       await updateDoc(doc(db, 'matches', match.id), {
@@ -695,9 +657,7 @@ function KyoruguiEngine({
     if (isFinishing) return;
     setIsFinishing(true);
     try {
-      // Determina o vencedor real se não for passado manualmente
       const winningId = manualWinnerId || (winnerRounds.a > winnerRounds.b ? match.competitorA?.athleteId : match.competitorB?.athleteId);
-      // Pontuação total para o histórico
       const totalA = rounds.r1.a + rounds.r2.a + rounds.r3.a;
       const totalB = rounds.r1.b + rounds.r2.b + rounds.r3.b;
 
@@ -727,150 +687,144 @@ function KyoruguiEngine({
   const totalB = rounds.r1.b + rounds.r2.b + rounds.r3.b;
 
   return (
-    <div className="flex-1 flex flex-col p-8 overflow-y-auto">
-      {/* Seletor de Round */}
-      <div className="flex justify-center gap-4 mb-8">
-        {[1, 2, 3].map(r => (
-          <button
-            key={r}
-            onClick={() => setActiveRound(r as 1|2|3)}
-            className={`px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-xs transition-all ${
-              activeRound === r 
-                ? 'bg-red-600 text-white shadow-[0_0_20px_rgba(220,38,38,0.4)]' 
-                : 'bg-stone-900 text-stone-600 hover:bg-stone-800'
-            }`}
-          >
-            Round {r}
-          </button>
-        ))}
-      </div>
+    <div className="flex-1 flex flex-col h-full bg-black/20 overflow-hidden relative">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-8 pb-32">
+        <div className="max-w-7xl mx-auto space-y-8">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6 mb-4">
+              <div className="flex flex-col items-center sm:items-start">
+                 <span className="text-[10px] font-black text-stone-500 uppercase tracking-[0.3em] mb-3">Round Ativo</span>
+                 <div className="flex gap-3">
+                    {[1, 2, 3].map(r => (
+                      <button 
+                        key={r}
+                        onClick={() => setActiveRound(r as 1|2|3)}
+                        className={cn(
+                          "w-12 h-12 rounded-xl border-2 font-black transition-all flex items-center justify-center relative",
+                          activeRound === r ? "bg-red-600 border-red-500 text-white shadow-[0_0_20px_rgba(220,38,38,0.4)]" : "bg-stone-900 border-white/5 text-stone-600 hover:border-white/20"
+                        )}
+                      >
+                        {r}
+                        {roundWinners[r-1] && (
+                          <div className={cn("absolute -top-1 -right-1 w-4 h-4 rounded-full border border-black flex items-center justify-center", roundWinners[r-1] === 'a' ? 'bg-blue-600' : 'bg-red-600')}>
+                            <Check className="w-2.5 h-2.5 text-white" />
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                 </div>
+              </div>
 
-      <div className="grid grid-cols-[1fr_auto_1fr] gap-8 items-start w-full max-w-7xl mx-auto flex-1">
-        {/* Lado Azul (A) */}
-        <div className="space-y-6">
-          <KyoruguiCompetitor comp={match.competitorA} side="blue" />
-          <div className="bg-stone-900 rounded-[2.5rem] p-8 border border-blue-600/20 shadow-2xl">
-            <div className="flex justify-between items-end mb-8">
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Placar R{activeRound}</span>
-                <div className="flex gap-1.5">
-                  {[1, 2, 3].map(i => (
-                    <div 
-                      key={i} 
-                      className={cn(
-                        "w-5 h-2 rounded-full border border-white/10 transition-all",
-                        roundWinners[i-1] === 'a' ? "bg-blue-600 shadow-[0_0_8px_rgba(37,99,235,0.5)] border-blue-500/50" : "bg-white/5"
-                      )}
-                    />
-                  ))}
+              <div className="hidden lg:flex flex-col items-center">
+                 <div className="bg-stone-900 px-6 py-3 rounded-2xl border border-white/5 flex items-center gap-6 shadow-xl">
+                    <div className="text-center">
+                      <span className="block text-[8px] font-black text-blue-500 uppercase">Rounds Azul</span>
+                      <span className="text-2xl font-black text-white">{winnerRounds.a}</span>
+                    </div>
+                    <div className="w-px h-8 bg-white/10" />
+                    <div className="text-center">
+                      <span className="block text-[8px] font-black text-red-500 uppercase">Rounds Vermelho</span>
+                      <span className="text-2xl font-black text-white">{winnerRounds.b}</span>
+                    </div>
+                 </div>
+              </div>
+
+              <div className="flex flex-col items-center sm:items-end">
+                <span className="text-[10px] font-black text-stone-500 uppercase tracking-[0.3em] mb-3">Categoria</span>
+                <div className="px-4 py-2 bg-white/5 rounded-lg border border-white/10 text-[10px] font-black text-stone-300 uppercase tracking-widest truncate max-w-[200px]">
+                  {match.groupKey}
                 </div>
               </div>
-              <span className="text-6xl font-black text-white tabular-nums leading-none">{currentR.a}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <button onClick={() => updateScore('a', 1)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-blue-600/20 active:scale-95 transition-all">+1</button>
-              <button onClick={() => updateScore('a', 2)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-blue-600/20 active:scale-95 transition-all">+2</button>
-              <button onClick={() => updateScore('a', 3)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-blue-600/20 active:scale-95 transition-all">+3</button>
-              <button onClick={() => updateScore('a', -1)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-stone-800 active:scale-95 transition-all">-1</button>
-            </div>
-            <div className="mt-6 pt-6 border-t border-white/5 flex justify-between items-center">
-               <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest text-center">Gam-jeom</span>
-               <div className="flex items-center gap-4">
-                 <button onClick={() => updateScore('gamA', -1)} className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-stone-500">-</button>
-                 <span className="text-3xl font-black text-amber-500">{currentR.gamA}</span>
-                 <button onClick={() => updateScore('gamA', 1)} className="w-10 h-10 rounded-full border border-amber-500/30 flex items-center justify-center text-amber-500 bg-amber-500/10">+1</button>
-               </div>
-            </div>
           </div>
-        </div>
-
-        {/* Central / Placar de Rounds */}
-        <div className="flex flex-col items-center pt-16 gap-10">
-           <div className="text-center bg-stone-900/50 p-8 rounded-[2rem] border border-white/5 shadow-inner">
-              <span className="text-[10px] font-black text-stone-500 uppercase tracking-[0.4em] block mb-6">BEST OF 3 ROUNDS</span>
-              <div className="flex items-center gap-10">
-                <div className="flex flex-col items-center">
-                  <span className="text-8xl font-black text-blue-600 italic leading-none">{winnerRounds.a}</span>
-                  <span className="text-[8px] font-black text-blue-500/50 uppercase tracking-widest mt-2">{winnerRounds.a === 1 ? 'Round' : 'Rounds'}</span>
+          
+          <div className="flex flex-col lg:grid lg:grid-cols-[1fr_auto_1fr] gap-4 sm:gap-8 items-start w-full">
+            <div className="space-y-6">
+              <KyoruguiCompetitor comp={match.competitorA} side="blue" />
+              <div className="bg-stone-900 rounded-[2.5rem] p-8 border border-blue-600/20 shadow-2xl">
+                <div className="flex justify-between items-end mb-8">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Placar R{activeRound}</span>
+                  </div>
+                  <span className="text-6xl font-black text-white tabular-nums leading-none">{currentR.a}</span>
                 </div>
-                <div className="text-3xl font-black text-stone-800 animate-pulse">VS</div>
-                <div className="flex flex-col items-center">
-                  <span className="text-8xl font-black text-red-600 italic leading-none">{winnerRounds.b}</span>
-                  <span className="text-[8px] font-black text-red-500/50 uppercase tracking-widest mt-2">{winnerRounds.b === 1 ? 'Round' : 'Rounds'}</span>
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={() => updateScore('a', 1)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-blue-600/20 active:scale-95 transition-all">+1</button>
+                  <button onClick={() => updateScore('a', 2)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-blue-600/20 active:scale-95 transition-all">+2</button>
+                  <button onClick={() => updateScore('a', 3)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-blue-600/20 active:scale-95 transition-all">+3</button>
+                  <button onClick={() => updateScore('a', -1)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-stone-800 active:scale-95 transition-all">-1</button>
                 </div>
-              </div>
-              <div className="mt-8 pt-6 border-t border-white/5 flex flex-col gap-1">
-                <span className="text-[8px] font-black text-stone-600 uppercase tracking-widest">Soma Total de Pontos</span>
-                <span className="text-lg font-black text-stone-400 tabular-nums">{totalA} x {totalB}</span>
-              </div>
-           </div>
-           
-           <div className="flex flex-col gap-4">
-              <button onClick={() => match.competitorA && handleFinish(match.competitorA.athleteId)} className="h-12 w-48 rounded-xl bg-blue-900/10 border border-blue-900/20 text-blue-800 text-[9px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all">Vincular W.O. Azul</button>
-              <button onClick={() => match.competitorB && handleFinish(match.competitorB.athleteId)} className="h-12 w-48 rounded-xl bg-red-900/10 border border-red-900/20 text-red-800 text-[9px] font-black uppercase tracking-widest hover:bg-red-600 hover:text-white transition-all">Vincular W.O. Vermelho</button>
-           </div>
-        </div>
-
-        {/* Lado Vermelho (B) */}
-        <div className="space-y-6">
-          <KyoruguiCompetitor comp={match.competitorB} side="red" />
-          <div className="bg-stone-900 rounded-[2.5rem] p-8 border border-red-600/20 shadow-2xl">
-            <div className="flex justify-between items-end mb-8">
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Placar R{activeRound}</span>
-                <div className="flex gap-1.5">
-                  {[1, 2, 3].map(i => (
-                    <div 
-                      key={i} 
-                      className={cn(
-                        "w-5 h-2 rounded-full border border-white/10 transition-all",
-                        roundWinners[i-1] === 'b' ? "bg-red-600 shadow-[0_0_8px_rgba(220,38,38,0.5)] border-red-500/50" : "bg-white/5"
-                      )}
-                    />
-                  ))}
+                <div className="mt-6 pt-6 border-t border-white/5 flex justify-between items-center">
+                   <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest text-center">Gam-jeom</span>
+                   <div className="flex items-center gap-4">
+                     <button onClick={() => updateScore('gamA', -1)} className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-stone-500">-</button>
+                     <span className="text-3xl font-black text-amber-500">{currentR.gamA}</span>
+                     <button onClick={() => updateScore('gamA', 1)} className="w-10 h-10 rounded-full border border-amber-500/30 flex items-center justify-center text-amber-500 bg-amber-500/10">+1</button>
+                   </div>
                 </div>
               </div>
-              <span className="text-6xl font-black text-white tabular-nums leading-none">{currentR.b}</span>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <button onClick={() => updateScore('b', 1)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-red-600/20 active:scale-95 transition-all">+1</button>
-              <button onClick={() => updateScore('b', 2)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-red-600/20 active:scale-95 transition-all">+2</button>
-              <button onClick={() => updateScore('b', 3)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-red-600/20 active:scale-95 transition-all">+3</button>
-              <button onClick={() => updateScore('b', -1)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-stone-800 active:scale-95 transition-all">-1</button>
-            </div>
-            <div className="mt-6 pt-6 border-t border-white/5 flex justify-between items-center">
-               <span className="text-[10px] font-black text-red-500 uppercase tracking-widest text-center">Gam-jeom</span>
-               <div className="flex items-center gap-4">
-                 <button onClick={() => updateScore('gamB', -1)} className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-stone-500">-</button>
-                 <span className="text-3xl font-black text-amber-500">{currentR.gamB}</span>
-                 <button onClick={() => updateScore('gamB', 1)} className="w-10 h-10 rounded-full border border-amber-500/30 flex items-center justify-center text-amber-500 bg-amber-500/10">+1</button>
+
+            <div className="hidden lg:flex flex-col items-center pt-16 gap-10">
+               <div className="text-center bg-stone-900/50 p-8 rounded-[2rem] border border-white/5 shadow-inner">
+                  <span className="text-[10px] font-black text-stone-500 uppercase tracking-[0.4em] block mb-6">BEST OF 3</span>
+                  <div className="text-3xl font-black text-stone-800 animate-pulse">VS</div>
+                  <div className="mt-8 pt-6 border-t border-white/5 flex flex-col gap-1">
+                    <span className="text-[8px] font-black text-stone-600 uppercase tracking-widest">Total</span>
+                    <span className="text-lg font-black text-stone-400 tabular-nums">{totalA} x {totalB}</span>
+                  </div>
                </div>
+            </div>
+
+            <div className="space-y-6">
+              <KyoruguiCompetitor comp={match.competitorB} side="red" />
+              <div className="bg-stone-900 rounded-[2.5rem] p-8 border border-red-600/20 shadow-2xl">
+                <div className="flex justify-between items-end mb-8">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-[10px] font-black text-stone-500 uppercase tracking-widest">Placar R{activeRound}</span>
+                  </div>
+                  <span className="text-6xl font-black text-white tabular-nums leading-none">{currentR.b}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={() => updateScore('b', 1)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-red-600/20 active:scale-95 transition-all">+1</button>
+                  <button onClick={() => updateScore('b', 2)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-red-600/20 active:scale-95 transition-all">+2</button>
+                  <button onClick={() => updateScore('b', 3)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-red-600/20 active:scale-95 transition-all">+3</button>
+                  <button onClick={() => updateScore('b', -1)} className="h-16 bg-white/5 rounded-2xl border border-white/10 font-black text-xl hover:bg-stone-800 active:scale-95 transition-all">-1</button>
+                </div>
+                <div className="mt-6 pt-6 border-t border-white/5 flex justify-between items-center">
+                   <span className="text-[10px] font-black text-red-500 uppercase tracking-widest text-center">Gam-jeom</span>
+                   <div className="flex items-center gap-4">
+                     <button onClick={() => updateScore('gamB', -1)} className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-stone-500">-</button>
+                     <span className="text-3xl font-black text-amber-500">{currentR.gamB}</span>
+                     <button onClick={() => updateScore('gamB', 1)} className="w-10 h-10 rounded-full border border-amber-500/30 flex items-center justify-center text-amber-500 bg-amber-500/10">+1</button>
+                   </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="mt-8 flex flex-col items-center gap-6">
-        {/* Botões de Vencedor do Round */}
+      <div className="sticky bottom-0 w-full bg-stone-900/80 backdrop-blur-xl border-t border-white/10 p-4 sm:p-6 flex flex-col items-center gap-4 z-30 shadow-[0_-20px_40px_rgba(0,0,0,0.5)]">
         {!isFinishing && !roundWinners[activeRound-1] && (
-          <div className="flex gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="flex gap-3 sm:gap-6 w-full max-w-3xl animate-in slide-in-from-bottom-2 duration-300">
              <button 
                onClick={() => {
                  if (currentR.a < currentR.b && !confirm("Pontuação inferior. Confirmar vitória por Superioridade?")) return;
                  confirmRoundWinner('a');
                }}
-               className="px-6 py-3 bg-blue-600/10 border border-blue-600/30 text-blue-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all"
+               className="flex-1 h-14 sm:h-16 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-[10px] sm:text-xs font-black uppercase tracking-widest shadow-lg shadow-blue-900/20 transition-all active:scale-95 flex flex-col items-center justify-center gap-1"
              >
-               Vencer Round (Azul)
+               <span>Vencer Round</span>
+               <span className="opacity-60 text-[8px]">AZUL</span>
              </button>
              <button 
                onClick={() => {
                  if (currentR.b < currentR.a && !confirm("Pontuação inferior. Confirmar vitória por Superioridade?")) return;
                  confirmRoundWinner('b');
                }}
-               className="px-6 py-3 bg-red-600/10 border border-red-600/30 text-red-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-600 hover:text-white transition-all"
+               className="flex-1 h-14 sm:h-16 bg-red-600 hover:bg-red-500 text-white rounded-2xl text-[10px] sm:text-xs font-black uppercase tracking-widest shadow-lg shadow-red-900/20 transition-all active:scale-95 flex flex-col items-center justify-center gap-1"
              >
-               Vencer Round (Vermelho)
+               <span>Vencer Round</span>
+               <span className="opacity-60 text-[8px]">VERMELHO</span>
              </button>
           </div>
         )}
@@ -881,15 +835,13 @@ function KyoruguiEngine({
             const winnerId = winnerRounds.a > winnerRounds.b ? match.competitorA?.athleteId : match.competitorB?.athleteId;
             handleFinish(winnerId);
           }}
-          className={`h-24 px-24 rounded-[2.5rem] font-black uppercase italic tracking-tighter text-3xl shadow-2xl transition-all ${
+          className={cn(
             (winnerRounds.a >= 2 || winnerRounds.b >= 2)
               ? 'bg-emerald-600 hover:bg-emerald-500 text-white animate-pulse'
               : 'bg-stone-800 text-stone-600 opacity-50 cursor-not-allowed'
-          } ${isLastOfGroup && (winnerRounds.a >= 2 || winnerRounds.b >= 2) ? 'bg-gradient-to-r from-amber-600 to-amber-500' : ''}`}
+          )}
         >
-          {isFinishing ? 'Processando...' : 
-           (winnerRounds.a >= 2 || winnerRounds.b >= 2) ? (isLastOfGroup ? 'Finalizar Categoria' : 'Concluir Luta') :
-           'Aguardando Decisão dos Rounds'}
+          {isFinishing ? 'Processando...' : (winnerRounds.a >= 2 || winnerRounds.b >= 2) ? 'Finalizar Combate' : 'Aguardando Vencedor'}
         </button>
       </div>
     </div>
@@ -1110,9 +1062,9 @@ function PoomsaeAwaiting({ match, session, myScore }: { match: Match, session: C
 }
 
 function KyopaEngine({ 
-  match, judgeIndex, isLastOfGroup, nextMatchId, onPodium 
+  match, session, judgeIndex, isLastOfGroup, nextMatchId, onPodium 
 }: { 
-  match: Match, judgeIndex: number | null, isLastOfGroup: boolean, nextMatchId: string | null, onPodium: (data: PodiumData) => void 
+  match: Match, session: CourtSession, judgeIndex: number | null, isLastOfGroup: boolean, nextMatchId: string | null, onPodium: (data: PodiumData) => void 
 }) {
   if (judgeIndex !== 0) {
     return (
@@ -1130,7 +1082,7 @@ function KyopaEngine({
          athleteName={match.competitorA?.name || 'Incompleto'} 
          isLastOfGroup={isLastOfGroup} 
          nextMatchId={nextMatchId} 
-         courtId={1} 
+         courtId={Number(session.courtId)} 
          onPodium={onPodium}
        />
     </div>
@@ -1366,7 +1318,7 @@ function PodiumSpot({
   );
 }
 
-import { PodiumWinner } from '../../services/courtService';
+
 
 function PinGate({ onSuccess, error, setError }: { onSuccess: () => void, error: boolean, setError: (v: boolean) => void }) {
   const [pin, setPin] = useState('');
@@ -1461,4 +1413,4 @@ function PinGate({ onSuccess, error, setError }: { onSuccess: () => void, error:
   );
 }
 
-import { cn } from '../ui';
+

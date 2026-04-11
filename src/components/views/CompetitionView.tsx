@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, Trophy, AlertCircle, Trash2, Clock, RotateCcw, Play, Loader2, Mic, Radio, CheckCircle2, PlaySquare, Medal, Copy } from 'lucide-react';
+import { Shield, Trophy, AlertCircle, Trash2, Clock, RotateCcw, Play, Loader2, Mic, Radio, CheckCircle2, PlaySquare, Medal, Copy, Timer } from 'lucide-react';
 import { doc, updateDoc, collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { 
@@ -33,7 +33,8 @@ import {
   batchCallMatches, 
   batchResetCourtMatches, 
   processCourtRanking,
-  batchGenerateModuleMatches 
+  batchGenerateModuleMatches,
+  resetAllFestivalArena 
 } from '../../services/courtService';
 import { CourtQueueModal } from './CourtQueueModal';
 import { WinnerReasonModal } from '../WinnerReasonModal';
@@ -550,6 +551,55 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
     }
   };
 
+  const handleResetArena = async () => {
+    if (!confirm("⚠️ ATENÇÃO: Deseja resetar TODA a arena do festival?")) return;
+    if (!confirm("🚨 ESTA AÇÃO É IRREVERSÍVEL. Todas as chaves e pódios serão excluídos. Confirmar?")) return;
+
+    setIsBatchLoading(true);
+    try {
+      const result = await resetAllFestivalArena();
+      alert(`Arena resetada com sucesso!\nPartidas deletadas: ${result.matchesDeleted}\nAtletas resetados: ${result.athletesReset}`);
+      window.location.reload(); // Recarregar para limpar estado local pesado
+    } catch (error: any) {
+      alert(`Erro ao resetar arena: ${error.message}`);
+    } finally {
+      setIsBatchLoading(false);
+    }
+  };
+
+  const getEstimatedTime = (modality: string, athletes: any[], categoryMatches: any[]) => {
+    const timePerUnit = modality === 'Kyopa' ? 2 : 5;
+    if (modality === 'Kyorugui') {
+      const scheduled = categoryMatches.filter(m => m.status === 'scheduled');
+      return scheduled.length * 5;
+    }
+    const pendingAthletes = athletes.filter(a => a.isMatched && !a.place);
+    return pendingAthletes.length * timePerUnit;
+  };
+
+  const modalityETAs = useMemo(() => {
+    const etas: Record<string, number> = {};
+    const modalities = ['Kyorugui', 'Poomsae', 'Kyopa'];
+    
+    modalities.forEach(mod => {
+      if (mod === 'Kyorugui') {
+        const scheduled = matches.filter(m => m.status === 'scheduled');
+        etas[mod] = scheduled.length * 5;
+      } else {
+        const activeAthletes = registrations.filter(r => 
+          r.status === 'Confirmado' &&
+          r.disciplineStatus && 
+          r.disciplineStatus[mod] && 
+          r.disciplineStatus[mod].isMatched && 
+          (!r.results || !r.results.some((res: any) => res.category === mod))
+        );
+        const rate = mod === 'Kyopa' ? 2 : 5;
+        etas[mod] = activeAthletes.length * rate;
+      }
+    });
+    return etas;
+  }, [matches, registrations]);
+
   const currentModalityStats = useMemo(() => {
     const totalAthletes = Object.values(groupedAthletes).flat().length;
     const totalCategories = Object.keys(groupedAthletes).length;
@@ -557,19 +607,16 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
       athletes.length >= 2 && !athletes.some(a => a.isMatched)
     ).length;
     
-    // Cálculo de tempo previsto (baseado na solicitação do usuário)
-    let timePerUnit = 7; // Kyorugui: 7 min/match
-    if (selectedCategory === 'Poomsae') timePerUnit = 5; // Poomsae: 5 min/atleta
-    if (selectedCategory === 'Kyopa') timePerUnit = 3; // Kyopa: 3 min/atleta
+    const timePerUnit = selectedCategory === 'Kyopa' ? 2 : 5; 
     
     const scheduledMatches = matches.filter(m => m.status === 'scheduled' && Object.keys(groupedAthletes).includes(m.groupKey));
     
     let estimatedTimeMinutes = 0;
     if (selectedCategory === 'Kyorugui') {
-      estimatedTimeMinutes = scheduledMatches.length * 7;
+      estimatedTimeMinutes = scheduledMatches.length * 5;
     } else {
       const activeAthletes = Object.values(groupedAthletes).flat().filter(a => a.isMatched && !a.place);
-      estimatedTimeMinutes = activeAthletes.length * (selectedCategory === 'Poomsae' ? 5 : 3);
+      estimatedTimeMinutes = activeAthletes.length * timePerUnit;
     }
 
     return {
@@ -670,6 +717,14 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
                   )}
                 >
                   {cat}
+                  {modalityETAs[cat] > 0 && (
+                    <span className={cn(
+                      "ml-2 text-[8px] opacity-70",
+                      selectedCategory === cat ? "text-white/80" : "text-stone-500"
+                    )}>
+                      {Math.floor(modalityETAs[cat] / 60)}h {modalityETAs[cat] % 60}m
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -726,14 +781,24 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
               </div>
             </div>
 
-            <div className="md:col-span-1 flex flex-col justify-center items-end text-right">
+            <div className="md:col-span-1 flex flex-col justify-center items-end gap-3">
               <div className="flex flex-col items-end gap-1">
                 <span className="text-[9px] font-black text-stone-600 uppercase tracking-[0.2em] mb-1">Taxas de Operação</span>
                 <div className="flex gap-2">
-                  <span className="px-2 py-1 bg-white/5 rounded-lg text-[8px] font-bold text-stone-400">KYOR: 7m/luta</span>
-                  <span className="px-2 py-1 bg-white/5 rounded-lg text-[8px] font-bold text-stone-400">POOM: 5m/atl</span>
+                  <span className="px-2 py-1 bg-white/5 rounded-lg text-[8px] font-bold text-stone-400">GERAL: 5m</span>
+                  <span className="px-2 py-1 bg-white/5 rounded-lg text-[8px] font-bold text-emerald-500">KYOPA: 2m</span>
                 </div>
               </div>
+
+              <Button 
+                variant="ghost"
+                disabled={isBatchLoading}
+                onClick={handleResetArena}
+                className="border-red-600/30 text-red-500 hover:bg-red-600/10 h-10 px-4 rounded-xl group/reset"
+              >
+                <AlertCircle className="w-4 h-4 mr-2 group-hover:rotate-180 transition-transform duration-500" />
+                <span className="text-[9px] font-black uppercase tracking-tighter">Reset Geral</span>
+              </Button>
             </div>
           </motion.div>
         )}
@@ -782,6 +847,10 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
                               Q{groupMatches[0].courtId} - {groupMatches[0].matchSequence}..{groupMatches[groupMatches.length-1].matchSequence}
                             </span>
                           )}
+                          <span className="flex items-center gap-1.5 px-2 py-0.5 bg-white/5 border border-white/10 rounded text-[8px] font-black text-stone-300 uppercase tracking-tighter">
+                            <Timer className="w-2.5 h-2.5 text-red-500" />
+                            ~{getEstimatedTime(selectedCategory as string, groupAthletes, groupMatches)} min
+                          </span>
                           {isCategoryFinished && (
                             <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/30 rounded text-[8px] font-black text-emerald-500 uppercase animate-in zoom-in-95 duration-500">
                               <CheckCircle2 className="w-2.5 h-2.5" />

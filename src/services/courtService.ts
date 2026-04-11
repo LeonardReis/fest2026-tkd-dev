@@ -18,7 +18,7 @@ import {
 } from 'firebase/firestore';
 import { OperationType, CourtSession, Match } from '../types';
 import { PoomsaeJudgeScore } from '../types/matches';
-import { sanitizeForId } from '../utils';
+import { sanitizeForId, handleFirestoreError } from '../utils';
 import { generateBracket } from '../utils/bracketEngine';
 
 export type WaitingDevice = {
@@ -788,6 +788,14 @@ export async function batchGenerateModuleMatches(
 
       if (modality === 'Kyorugui') {
         newMatches = generateBracket(festivalId, categoryId, groupKey, catAthletes);
+        
+        // ORDENAÇÃO EXPLÍCITA: Round ASC, MatchNumber ASC
+        // Isso garante que Quartas > Semis > Finais na sequência da quadra
+        newMatches.sort((a, b) => {
+          if (a.round !== b.round) return a.round - b.round;
+          return a.matchNumber - b.matchNumber;
+        });
+
         // Alternar Kyorugui entre 2 e 3
         targetCourtId = (lastKyoruguiCourt === 2 ? 3 : 2) as 1|2|3;
         lastKyoruguiCourt = targetCourtId;
@@ -877,6 +885,81 @@ export async function batchGenerateModuleMatches(
   } catch (error) {
     console.error("Erro no batchGenerateModuleMatches:", error);
     handleFirestoreError(error, OperationType.UPDATE, 'matches');
+    throw error;
+  }
+}
+
+/**
+ * Reseta COMPLETAMENTE o estado da arena para um festival.
+ * Deleta todas as partidas e reseta todos os atletas para 'isMatched: false'.
+ */
+export async function resetAllFestivalArena(festivalId: string = 'fest2026') {
+  try {
+    // 1. Deletar TODAS as partidas do banco para este ambiente
+    const matchesQ = query(collection(db, 'matches'));
+    const matSnap = await getDocs(matchesQ);
+    
+    let batch = writeBatch(db);
+    let count = 0;
+    
+    console.log(`[resetAllFestivalArena] Deletando ${matSnap.size} partidas...`);
+    
+    for (const docSnap of matSnap.docs) {
+      batch.delete(docSnap.ref);
+      count++;
+      if (count >= 400) {
+        await batch.commit();
+        batch = writeBatch(db);
+        count = 0;
+      }
+    }
+    
+    // 2. BUSCA TOTAL: Resetar todos os registros de atletas (Limpeza Profunda)
+    // Buscamos todas as inscrições para garantir que nenhum 'rastro' interno (deep field) escape.
+    const regQ = query(collection(db, 'registrations'));
+    const regSnap = await getDocs(regQ);
+    
+    console.log(`[resetAllFestivalArena] Iniciando faxina em ${regSnap.size} registros de atletas...`);
+    
+    for (const docSnap of regSnap.docs) {
+      const data = docSnap.data();
+      const disciplineStatus = { ...data.disciplineStatus };
+      
+      // Forçar isMatched: false em todas as modalidades (Kyorugui, Poomsae, Kyopa)
+      Object.keys(disciplineStatus).forEach(key => {
+        if (disciplineStatus[key]) {
+          disciplineStatus[key].isMatched = false;
+        }
+      });
+
+      // Update atômico: Raiz + Deep Fields + Resultados
+      batch.update(docSnap.ref, {
+        isMatched: false,
+        disciplineStatus,
+        results: [], 
+        updatedAt: serverTimestamp()
+      });
+      
+      count++;
+      if (count >= 400) {
+        await batch.commit();
+        batch = writeBatch(db);
+        count = 0;
+      }
+    }
+
+    if (count > 0) {
+      await batch.commit();
+    }
+
+    return { 
+      matchesDeleted: matSnap.size, 
+      athletesReset: regSnap.size 
+    };
+
+  } catch (error) {
+    console.error("Erro no resetAllFestivalArena:", error);
+    handleFirestoreError(error, OperationType.DELETE, 'matches');
     throw error;
   }
 }
