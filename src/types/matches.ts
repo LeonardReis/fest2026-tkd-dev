@@ -28,6 +28,7 @@ export interface Match {
   festivalId: string;
   categoryId: string;
   groupKey: string; // Chave da categoria original (ex: "Infantil | Colorida | Masculino | Até 35kg")
+  modality: 'Kyorugui' | 'Poomsae' | 'Kyopa';
   matchNumber: number;
   round: number; // 1: Quartas, 2: Semi, 3: Final, etc.
   status: MatchStatus;
@@ -42,6 +43,7 @@ export interface Match {
   court?: string;
   courtId?: 1 | 2 | 3;
   matchSequence?: number;
+  modalitySequence?: number;
   calledAt?: string;
   poomsaeScores?: Record<string, PoomsaeJudgeScore>; // { judge_1: { tecnica: 3.8, velocidade: 1.8, ... } }
   finalScore?: number;                    // nota final calculada (média WT com descarte)

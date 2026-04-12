@@ -194,6 +194,18 @@ export async function callMatch(matchId: string) {
   }
 }
 
+export async function postponeMatch(matchId: string) {
+  try {
+    await updateDoc(doc(db, 'matches', matchId), {
+      status: 'scheduled',
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'matches');
+    throw error;
+  }
+}
+
 export async function callMatchInQueue(matchId: string) {
   // Alias for readability in queue context
   return callMatch(matchId);
@@ -378,7 +390,24 @@ export async function getNextSequenceForCourt(courtId: 1|2|3): Promise<number> {
     return (snap.docs[0].data().matchSequence || (courtId * 100)) + 1;
   } catch (error: any) {
     console.error("Erro ao buscar próxima sequência para a quadra:", error);
-    return courtId * 100 + 1;
+    return 1;
+  }
+}
+
+export async function getNextSequenceForModality(modality: string): Promise<number> {
+  try {
+    const q = query(
+      collection(db, 'matches'),
+      where('modality', '==', modality),
+      orderBy('modalitySequence', 'desc'),
+      limit(1)
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) return 1;
+    return (snap.docs[0].data().modalitySequence || 0) + 1;
+  } catch (error: any) {
+    console.error("Erro ao buscar próxima sequência para a modalidade:", error);
+    return 1;
   }
 }
 
@@ -760,6 +789,8 @@ export async function batchGenerateModuleMatches(
       3: await getNextSequenceForCourt(3),
     };
 
+    let modalitySeq = await getNextSequenceForModality(modality);
+
     // 2. Determinar a última quadra de Kyorugui para alternar (entre 2 e 3)
     const kMatchQ = query(collection(db, 'matches'), where('courtId', 'in', [2, 3]), orderBy('matchSequence', 'desc'), limit(1));
     const kSnap = await getDocs(kMatchQ);
@@ -799,6 +830,10 @@ export async function batchGenerateModuleMatches(
         })) as any[];
         targetCourtId = 1;
       }
+      
+      // Adicionar metadados de modalidade antes do push
+      newMatches = newMatches.map(m => ({ ...m, modality }));
+      
       categoriesMatches.push({ targetCourtId, matches: newMatches, athletes, groupKey });
     }
 
@@ -823,10 +858,13 @@ export async function batchGenerateModuleMatches(
             }
 
             const sequence = courtSequences[catData.targetCourtId]++;
+            const globalSeq = modalitySeq++;
+            
             batch.set(doc(db, 'matches', match.id), {
                 ...match,
                 courtId: catData.targetCourtId,
                 matchSequence: sequence,
+                modalitySequence: globalSeq,
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp()
             });

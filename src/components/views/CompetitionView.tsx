@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, Trophy, AlertCircle, Trash2, Clock, RotateCcw, Play, Loader2, Mic, Radio, CheckCircle2, PlaySquare, Medal, Copy, Timer } from 'lucide-react';
+import { Shield, Trophy, AlertCircle, Trash2, Clock, RotateCcw, Play, Loader2, Mic, Radio, CheckCircle2, PlaySquare, Medal, Copy, Timer, Settings2, ChevronDown, Printer } from 'lucide-react';
 import { doc, updateDoc, collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { 
@@ -10,7 +10,9 @@ import {
   getPoomsaeByBelt, 
   getFightRules, 
   getFightRounds,
-  sanitizeForId
+  sanitizeForId,
+  calculateCategoryMatchCount,
+  getSortedCategoryKeys
 } from '../../utils';
 import { User } from 'firebase/auth';
 import { Registration, Athlete, Academy, UserProfile, OperationType, Match } from '../../types';
@@ -69,6 +71,7 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
   // Estado para o modal de Filas
   const [isCourtQueueModalOpen, setIsCourtQueueModalOpen] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [showResetOptions, setShowResetOptions] = useState(false);
   const [isBatchLoading, setIsBatchLoading] = useState(false);
 
   const handleCopyLink = () => {
@@ -432,6 +435,55 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
       percent: total > 0 ? Math.round((finished / total) * 100) : 0
     };
   }, [matches]);
+  
+  // Cálculo do Cronograma Preditivo (Global por Modalidade)
+  const scheduleInfo = useMemo(() => {
+    let currentMatchIndex = 1;
+    const info: Record<string, { start: number; end: number; count: number; isReal: boolean }> = {};
+    
+    const sortedKeys = Object.keys(groupedAthletes).sort((a, b) => a.localeCompare(b));
+
+    sortedKeys.forEach(key => {
+      // Verificar se esta categoria já possui lutas no banco (com modalitySequence)
+      const categoryMatches = matches.filter(m => m.groupKey === key && m.modalitySequence !== undefined);
+      
+      if (categoryMatches.length > 0) {
+        const seqs = categoryMatches.map(m => m.modalitySequence as number);
+        const min = Math.min(...seqs);
+        const max = Math.max(...seqs);
+        
+        info[key] = {
+          start: min,
+          end: max,
+          count: categoryMatches.length,
+          isReal: true
+        };
+        
+        // Mantém o índice adiante para as próximas estimativas
+        if (max >= currentMatchIndex) {
+          currentMatchIndex = max + 1;
+        }
+      } else {
+        // Fallback para estimativa preditiva
+        const athletes = groupedAthletes[key];
+        const count = calculateCategoryMatchCount(athletes.length, selectedCategory);
+        
+        if (count > 0) {
+          info[key] = {
+            start: currentMatchIndex,
+            end: currentMatchIndex + count - 1,
+            count,
+            isReal: false
+          };
+          currentMatchIndex += count;
+        } else {
+          info[key] = { start: 0, end: 0, count: 0, isReal: false };
+        }
+      }
+    });
+
+    return info;
+  }, [groupedAthletes, selectedCategory, matches]);
 
   const soloAthletes = useMemo(() => {
     return Object.entries(groupedAthletes)
@@ -591,6 +643,69 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
     }
     const pendingAthletes = athletes.filter(a => a.isMatched && !a.place);
     return pendingAthletes.length * timePerUnit;
+  };
+
+  const handlePrintSchedule = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const sortedKeys = Object.keys(groupedAthletes).sort((a, b) => a.localeCompare(b));
+    
+    let html = `
+      <html>
+        <head>
+          <title>Cronograma - ${selectedCategory}</title>
+          <style>
+            body { font-family: sans-serif; padding: 40px; color: #333; }
+            h1 { text-transform: uppercase; border-bottom: 2px solid #000; padding-bottom: 10px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+            th { bg-color: #f5f5f5; text-transform: uppercase; font-size: 12px; }
+            tr:nth-child(even) { background-color: #f9f9f9; }
+            .badge { padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #eee; }
+            .global-number { font-weight: 900; color: #d32f2f; }
+          </style>
+        </head>
+        <body>
+          <h1>Cronograma de Atividades: ${selectedCategory.toUpperCase()}</h1>
+          <p>Documento gerado em: ${new Date().toLocaleString('pt-BR')}</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Sequência</th>
+                <th>Categoria</th>
+                <th>Atletas</th>
+                <th>Estimativa</th>
+              </tr>
+            </thead>
+            <tbody>
+    `;
+
+    sortedKeys.forEach(key => {
+      const athletes = groupedAthletes[key];
+      const info = scheduleInfo[key];
+      if (info && info.count > 0) {
+        html += `
+          <tr>
+            <td class="global-number">${info.start} - ${info.end}</td>
+            <td>${key}</td>
+            <td>${athletes.length}</td>
+            <td>~${getEstimatedTime(selectedCategory, athletes, [])} min</td>
+          </tr>
+        `;
+      }
+    });
+
+    html += `
+            </tbody>
+          </table>
+          <script>window.print();</script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
   };
 
   const modalityETAs = useMemo(() => {
@@ -783,8 +898,19 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
                   </>
                 )}
               </Button>
+              <Button 
+                variant="secondary"
+                onClick={handlePrintSchedule}
+                className="border-white/10 text-stone-300 hover:text-white bg-white/5 h-12 px-6 rounded-2xl flex items-center gap-3"
+              >
+                <Printer className="w-5 h-5 opacity-70" />
+                <div className="text-left">
+                  <p className="text-[10px] font-black uppercase tracking-tighter leading-none">Imprimir Cronograma</p>
+                  <p className="text-[8px] font-bold opacity-60 uppercase tracking-widest mt-0.5">Visão de Mesa</p>
+                </div>
+              </Button>
 
-              <div className="flex items-center gap-4 ml-2 px-6 py-2 bg-black/20 rounded-2xl border border-white/5">
+              <div className="flex items-center gap-4 ml-auto px-6 py-2 bg-black/20 rounded-2xl border border-white/5">
                 <div className="text-center">
                   <p className="text-[8px] font-bold text-stone-500 uppercase tracking-widest">Tempo Estimado</p>
                   <p className="text-lg font-black text-white">~{Math.ceil(currentModalityStats.estimatedTimeMinutes / 60)}h {currentModalityStats.estimatedTimeMinutes % 60}min</p>
@@ -797,8 +923,8 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
               </div>
             </div>
 
-            <div className="md:col-span-1 flex flex-col justify-center items-end gap-3">
-              <div className="flex flex-col items-end gap-1">
+            <div className="md:col-span-1 flex flex-col justify-center items-end relative">
+              <div className="flex flex-col items-end gap-1 mb-3">
                 <span className="text-[9px] font-black text-stone-600 uppercase tracking-[0.2em] mb-1">Taxas de Operação</span>
                 <div className="flex gap-2">
                   <span className="px-2 py-1 bg-white/5 rounded-lg text-[8px] font-bold text-stone-400">GERAL: 5m</span>
@@ -806,26 +932,67 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
                 </div>
               </div>
 
-              <div className="flex gap-2">
+              <div className="relative">
                 <Button 
                   variant="ghost"
                   disabled={isBatchLoading}
-                  onClick={handleResetModality}
-                  className="border-amber-600/30 text-amber-500 hover:bg-amber-600/10 h-10 px-4 rounded-xl group/reset"
+                  onClick={() => setShowResetOptions(!showResetOptions)}
+                  className={cn(
+                    "border-red-600/20 text-stone-400 hover:text-red-500 hover:bg-red-600/10 h-10 px-4 rounded-xl transition-all duration-300",
+                    showResetOptions && "bg-red-600/10 text-red-500 border-red-600/40"
+                  )}
                 >
-                  <RotateCcw className="w-4 h-4 mr-2 group-hover:rotate-[-120deg] transition-transform duration-500" />
-                  <span className="text-[9px] font-black uppercase tracking-tighter">Reset {selectedCategory}</span>
+                  <Settings2 className="w-4 h-4 mr-2" />
+                  <span className="text-[9px] font-black uppercase tracking-tighter">Limpar Dados</span>
+                  <ChevronDown className={cn("w-3 h-3 ml-1 transition-transform duration-300", showResetOptions && "rotate-180")} />
                 </Button>
 
-                <Button 
-                  variant="ghost"
-                  disabled={isBatchLoading}
-                  onClick={handleResetArena}
-                  className="border-red-600/30 text-red-500 hover:bg-red-600/10 h-10 px-4 rounded-xl group/reset"
-                >
-                  <AlertCircle className="w-4 h-4 mr-2 group-hover:rotate-180 transition-transform duration-500" />
-                  <span className="text-[9px] font-black uppercase tracking-tighter">Reset Geral</span>
-                </Button>
+                {/* Dropdown Menu - Zona de Perigo */}
+                <AnimatePresence>
+                  {showResetOptions && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowResetOptions(false)} />
+                      <motion.div 
+                        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                        className="absolute right-0 bottom-full mb-3 w-56 bg-stone-900 border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden backdrop-blur-3xl"
+                      >
+                        <div className="p-3 border-b border-white/5 bg-red-600/5">
+                          <p className="text-[9px] font-black text-red-500 uppercase tracking-[0.2em]">Zona de Perigo</p>
+                        </div>
+                        
+                        <div className="p-2 space-y-1">
+                          <button 
+                            onClick={() => { handleResetModality(); setShowResetOptions(false); }}
+                            className="w-full flex items-center gap-3 px-3 py-3 text-left hover:bg-white/5 rounded-xl transition-colors group/opt"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center group-hover/opt:bg-amber-500/20 transition-colors">
+                              <RotateCcw className="w-4 h-4 text-amber-500" />
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-black text-white uppercase tracking-tighter">Reset {selectedCategory}</p>
+                              <p className="text-[8px] font-medium text-stone-500 uppercase tracking-widest mt-0.5">Somente o módulo atual</p>
+                            </div>
+                          </button>
+
+                          <button 
+                            onClick={() => { handleResetArena(); setShowResetOptions(false); }}
+                            className="w-full flex items-center gap-3 px-3 py-3 text-left hover:bg-red-600/10 rounded-xl transition-colors group/opt"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-red-600/10 flex items-center justify-center group-hover/opt:bg-red-600/20 transition-colors">
+                              <AlertCircle className="w-4 h-4 text-red-600" />
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-black text-red-600 uppercase tracking-tighter">Reset Geral Arena</p>
+                              <p className="text-[8px] font-medium text-stone-500 uppercase tracking-widest mt-0.5">Limpar tudo (Irreversível)</p>
+                            </div>
+                          </button>
+                        </div>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
 
@@ -885,6 +1052,11 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
                           {groupMatches.length > 0 && groupMatches[0].courtId && (
                             <span className="px-2 py-0.5 bg-amber-500 rounded text-[8px] font-black text-black uppercase">
                               Q{groupMatches[0].courtId} - {groupMatches[0].matchSequence}..{groupMatches[groupMatches.length-1].matchSequence}
+                            </span>
+                          )}
+                          {scheduleInfo[key] && scheduleInfo[key].count > 0 && (
+                            <span className="px-2 py-0.5 bg-red-600/20 border border-red-600/30 rounded text-[8px] font-black text-red-500 uppercase shadow-sm">
+                              Lutas: {scheduleInfo[key].start} - {scheduleInfo[key].end}
                             </span>
                           )}
                           <span className="flex items-center gap-1.5 px-2 py-0.5 bg-white/5 border border-white/10 rounded text-[8px] font-black text-stone-300 uppercase tracking-tighter">

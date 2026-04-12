@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, Clock, AlertCircle, Check, Ban, Flag, Trophy, User as UserIcon, Keyboard, Play, PlaySquare, RotateCcw, FileText, Radio, Loader2, Mic, PlusSquare, MinusSquare, ChevronDown, ChevronUp } from 'lucide-react';
+import { Shield, Clock, AlertCircle, Check, Ban, Flag, Trophy, User as UserIcon, Keyboard, Play, PlaySquare, RotateCcw, FileText, Radio, Loader2, Mic, PlusSquare, MinusSquare, ChevronDown, ChevronUp, SkipForward } from 'lucide-react';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, onSnapshot, query, collection, where, orderBy, limit, updateDoc, serverTimestamp, runTransaction, writeBatch } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
-import { validateCourtSession, submitPoomsaeScore, callMatch, finishMatch, batchCallMatches, batchResetCourtMatches, processCourtRanking, PodiumData, updateMatchRoundScore, finishAndCycleMatch, PodiumWinner, pingCourtSession } from '../../services/courtService';
+import { validateCourtSession, submitPoomsaeScore, callMatch, postponeMatch, finishMatch, batchCallMatches, batchResetCourtMatches, processCourtRanking, PodiumData, updateMatchRoundScore, finishAndCycleMatch, PodiumWinner, pingCourtSession } from '../../services/courtService';
 import { CourtSession, Match } from '../../types';
 import { BeltBadge } from '../BeltBadge';
 import { Button, Card, cn } from '../ui';
@@ -167,6 +167,51 @@ export function CourtView({ sessionId, user, profile, authInitialized, deviceId 
   const activeMatch = matches.find(m => m.status === 'live');
   const nextMatches = matches.filter(m => m.status === 'scheduled');
 
+  const handleSkipCurrentMatch = async () => {
+    if (!activeMatch || isProcessingRanking) return;
+    if (!confirm(`Deseja ADIAR a luta atual?\n${activeMatch.competitorA?.name} VS ${activeMatch.competitorB?.name}\n\nEla voltará para a fila para ser chamada depois.`)) return;
+    
+    setIsProcessingRanking(true);
+    try {
+      await postponeMatch(activeMatch.id);
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao adiar luta.");
+    } finally {
+      setIsProcessingRanking(false);
+    }
+  };
+
+  const handleCallSpecificMatch = async (matchId: string) => {
+    if (isProcessingRanking) return;
+    
+    // Se clicar na luta que já é a live, não faz nada
+    if (activeMatch?.id === matchId) return;
+
+    // Se já existe uma luta live, pergunta se quer trocar
+    if (activeMatch) {
+       if (!confirm("Já existe uma luta em andamento. Deseja ADIÁ-LA e chamar esta nova luta?")) return;
+       setIsProcessingRanking(true);
+       try {
+         await postponeMatch(activeMatch.id);
+       } catch (err) { 
+         console.error(err);
+         setIsProcessingRanking(false);
+         return;
+       }
+    }
+
+    setIsProcessingRanking(true);
+    try {
+      await callMatch(matchId);
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao chamar luta específica.");
+    } finally {
+      setIsProcessingRanking(false);
+    }
+  };
+
   const renderContent = () => {
     if (loading) return <LoadingView />;
     if (error || !session) return <ErrorView message={error || "Erro fatal"} />;
@@ -270,21 +315,27 @@ export function CourtView({ sessionId, user, profile, authInitialized, deviceId 
             <div className="flex-1 flex items-center gap-3 overflow-x-auto no-scrollbar scroll-smooth snap-x">
               {nextMatches.length > 0 ? (
                 nextMatches.map((m, i) => (
-                  <div 
+                  <button 
                     key={m.id} 
+                    onClick={() => handleCallSpecificMatch(m.id)}
                     className={cn(
-                      "snap-start shrink-0 h-10 px-4 rounded-xl border flex items-center gap-3 transition-all",
+                      "snap-start shrink-0 h-10 px-4 rounded-xl border flex items-center gap-3 transition-all hover:scale-105 active:scale-95 disabled:opacity-50",
                       i === 0 ? 'bg-blue-600/10 border-blue-500/30' : 'bg-white/5 border-white/5'
                     )}
+                    disabled={isProcessingRanking}
                   >
-                    <span className="text-[8px] font-black text-white/40">#{m.matchSequence}</span>
-                    <div className="flex items-center gap-2">
-                       <span className="text-[10px] font-black text-white uppercase whitespace-nowrap">{m.competitorA?.name?.split(' ')[0]}</span>
-                       <span className="text-[8px] font-bold text-stone-600">vs</span>
-                       <span className="text-[10px] font-black text-white uppercase whitespace-nowrap">{m.competitorB?.name?.split(' ')[0]}</span>
+                    <div className="flex flex-col items-start">
+                      <span className="text-[7px] font-black text-white/40 uppercase leading-none mb-0.5 whitespace-nowrap">
+                        #{m.modalitySequence || m.matchSequence}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black text-white uppercase whitespace-nowrap">{m.competitorA?.name?.split(' ')[0]}</span>
+                        <span className="text-[8px] font-bold text-stone-600">vs</span>
+                        <span className="text-[10px] font-black text-white uppercase whitespace-nowrap">{m.competitorB?.name?.split(' ')[0]}</span>
+                      </div>
                     </div>
                     {i === 0 && <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" />}
-                  </div>
+                  </button>
                 ))
               ) : (
                 <span className="text-[10px] font-black text-stone-600 uppercase italic">Fila Vazia...</span>
@@ -350,7 +401,18 @@ export function CourtView({ sessionId, user, profile, authInitialized, deviceId 
                     {activeMatch.competitorA?.name} <span className="text-stone-700 mx-2">VS</span> {activeMatch.competitorB?.name}
                   </p>
                 </div>
-                <div className="text-[8px] font-black text-stone-600 uppercase tracking-widest">{activeMatch.groupKey}</div>
+                <div className="flex items-center gap-3">
+                  <div className="text-[8px] font-black text-stone-600 uppercase tracking-widest">{activeMatch.groupKey}</div>
+                  <Button 
+                    onClick={handleSkipCurrentMatch}
+                    disabled={isProcessingRanking}
+                    variant="ghost"
+                    className="h-7 px-2 text-[8px] font-black uppercase tracking-widest gap-1.5 bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500/20"
+                  >
+                    <SkipForward className="w-3 h-3" />
+                    Pular Luta
+                  </Button>
+                </div>
               </div>
             </div>
           )}

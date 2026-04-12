@@ -498,3 +498,26 @@ export function getModalityEstimatedTime(groupKey: string): number {
   if (g.includes('festival')) return 1;
   return 5; // Kyorugui (Default)
 }
+
+/**
+ * Calcula a quantidade de lutas/apresentações de uma categoria.
+ */
+export function calculateCategoryMatchCount(athleteCount: number, modality: string): number {
+  if (athleteCount <= 1) return 0;
+  if (modality === 'Kyorugui') {
+    return athleteCount - 1; // Knockout simples: N-1 lutas
+  }
+  // Poomsae e Kyopa: 1 apresentação por atleta
+  return athleteCount;
+}
+
+/**
+ * Ordenação padronizada de categorias para o Cronograma.
+ */
+export function getSortedCategoryKeys(groupedAthletes: Record<string, any[]>): string[] {
+  return Object.keys(groupedAthletes).sort((a, b) => {
+    // 1. Prioridade por Turno (lógica simplificada aqui ou vinda do groupKey)
+    // 2. Ordem Alfabética (que já contém Modalidade, Gênero, Idade, Peso)
+    return a.localeCompare(b);
+  });
+}
