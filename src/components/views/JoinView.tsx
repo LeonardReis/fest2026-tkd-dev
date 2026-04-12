@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, Smartphone, Loader2, CheckCircle2, QrCode, LayoutGrid, User, MapPin } from 'lucide-react';
+import { Shield, Smartphone, Loader2, CheckCircle2, QrCode, LayoutGrid, User, MapPin, Monitor } from 'lucide-react';
 import { Button, Card, Input } from '../ui';
 import { registerWaitingDevice, updateDeviceHeartbeat, assignDeviceToCourt, ARENA_ACCESS_PIN } from '../../services/courtService';
 import { db, auth } from '../../firebase';
@@ -229,6 +229,26 @@ export function JoinView({ onNavigate }: { onNavigate: (view: any, params: any) 
             </motion.div>
           )}
         </AnimatePresence>
+
+        {step === 'name' && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            transition={{ delay: 0.5 }}
+            className="mt-8 flex flex-col items-center gap-4"
+          >
+            <div className="h-px w-12 bg-white/10" />
+            <button 
+              onClick={() => onNavigate('call-panel', {})}
+              className="flex items-center gap-3 px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/5 rounded-2xl transition-all group"
+            >
+              <Monitor className="w-4 h-4 text-stone-500 group-hover:text-red-500 transition-colors" />
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400 group-hover:text-white">
+                Abrir Painel de Chamadas Pública
+              </span>
+            </button>
+          </motion.div>
+        )}
 
         <p className="mt-16 text-center text-stone-700 text-[9px] font-black uppercase tracking-[0.3em] italic">
           Indomitable Spirit Arena Protocol • v2.0

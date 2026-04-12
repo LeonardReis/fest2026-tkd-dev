@@ -74,6 +74,7 @@ import { RankingView } from './components/views/RankingView';
 import { DashboardView, TributeCard } from './components/views/DashboardView';
 import { CourtView } from './components/views/CourtView';
 import { JoinView } from './components/views/JoinView';
+import { ArenaCallPanel } from './components/views/ArenaCallPanel';
 
 
 const UNIAO_LOPES_LOGO = "/logo-colombo.png";
@@ -82,7 +83,7 @@ const UNIAO_LOPES_LOGO = "/logo-colombo.png";
 
 // --- Main App ---
 
-type ViewMode = 'dashboard' | 'academy' | 'athletes' | 'registrations' | 'competition' | 'ranking' | 'admin' | 'profile' | 'court' | 'join';
+type ViewMode = 'dashboard' | 'academy' | 'athletes' | 'registrations' | 'competition' | 'ranking' | 'admin' | 'profile' | 'court' | 'join' | 'call-panel';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -96,6 +97,7 @@ export default function App() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('session')) return 'court';
     if (params.get('join') === 'arena' || params.get('arena') === 'arena') return 'join';
+    if (params.get('join') === 'panel' || params.get('arena') === 'panel') return 'call-panel';
 
     // 2. Fallback: localStorage
     const saved = localStorage.getItem('last_view');
@@ -145,6 +147,8 @@ export default function App() {
     if (sessionToken && view !== 'court') {
       console.log("🚀 Sessão PRIORIZADA via URL:", sessionToken);
       navigateTo('court', { sessionId: sessionToken });
+    } else if (params.get('join') === 'panel' && view !== 'call-panel') {
+      navigateTo('call-panel');
     } else if (isJoin && view !== 'join') {
       console.log("🚀 Entrando no Portal da Arena via URL");
       navigateTo('join');
@@ -483,7 +487,7 @@ export default function App() {
         </div>
 
         {/* Mobile Header */}
-        {view !== 'court' && view !== 'join' && (
+        {view !== 'court' && view !== 'join' && view !== 'call-panel' && (
           <header className="fixed top-0 left-0 right-0 h-16 bg-stone-900/80 backdrop-blur-xl border-b border-white/5 flex items-center justify-between px-6 z-[60] md:hidden">
             <div className="flex items-center gap-3">
               <img src={settings?.festivalLogo || UNIAO_LOPES_LOGO} alt="Logo" className="w-8 h-8 object-contain" />
@@ -499,7 +503,7 @@ export default function App() {
         )}
 
         {/* Sidebar Backdrop (Mobile) */}
-        {view !== 'court' && view !== 'join' && isSidebarOpen && (
+        {view !== 'court' && view !== 'join' && view !== 'call-panel' && isSidebarOpen && (
           <div 
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] md:hidden"
             onClick={() => setIsSidebarOpen(false)}
@@ -507,7 +511,7 @@ export default function App() {
         )}
 
         {/* Sidebar */}
-        {view !== 'court' && view !== 'join' && (
+        {view !== 'court' && view !== 'join' && view !== 'call-panel' && (
         <aside className={cn(
           "fixed inset-y-0 left-0 w-72 bg-stone-900 border-r border-white/5 flex flex-col z-[80] transition-transform duration-300 md:relative md:translate-x-0 md:bg-stone-900/40 md:backdrop-blur-3xl",
           isSidebarOpen ? "translate-x-0 shadow-[20px_0_50px_rgba(0,0,0,0.5)]" : "-translate-x-full"
@@ -580,13 +584,13 @@ export default function App() {
         {/* Main Content */}
         <main className={cn(
           "flex-1 overflow-y-auto z-40 relative",
-          (view !== 'court' && view !== 'join') && "pt-16 md:pt-0"
+          (view !== 'court' && view !== 'join' && view !== 'call-panel') && "pt-16 md:pt-0"
         )}>
           <div className={cn(
-            (view !== 'court' && view !== 'join') ? "p-4 sm:p-6 lg:p-12" : "p-0"
+            (view !== 'court' && view !== 'join' && view !== 'call-panel') ? "p-4 sm:p-6 lg:p-12" : "p-0"
           )}>
             <div className="max-w-7xl mx-auto space-y-8 md:space-y-12">
-              {view !== 'court' && view !== 'join' && (
+              {view !== 'court' && view !== 'join' && view !== 'call-panel' && (
                 <header className="flex items-center justify-between pb-8 border-b border-white/5">
                   <div>
                     <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter leading-none">
@@ -618,6 +622,7 @@ export default function App() {
                 {view === 'profile' && <ProfileView key="profile" profile={profile} user={user} />}
                 {view === 'court' && <CourtView key="court" sessionId={viewParams?.sessionId} user={user} profile={profile} authInitialized={authInitialized} deviceId={viewParams?.deviceId} />}
                 {view === 'join' && <JoinView key="join" onNavigate={navigateTo} />}
+                {view === 'call-panel' && <ArenaCallPanel key="call-panel" />}
               </AnimatePresence>
             </div>
           </div>
