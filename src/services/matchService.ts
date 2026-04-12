@@ -282,38 +282,11 @@ export async function advanceWinner(matchId: string, winnerId: string, reason: M
             updatedAt: serverTimestamp()
           });
         }
-
-        // Atribuir 3º LUGAR se esta for uma semifinal (a próxima luta é a final)
-        if (nextMatchSnap?.exists()) {
-          const nextMatchData = nextMatchSnap.data() as Match;
-          if (!nextMatchData.nextMatchId && loserRegSnap?.exists()) {
-            console.log(`[advanceWinner] Atribuindo 3º Lugar para ${safeLoserId}`);
-            let results = [...(loserRegSnap.data().results || [])];
-            const idx = results.findIndex(r => r.groupKey === matchData.groupKey);
-            const entry = { groupKey: matchData.groupKey, place: 3, points: 5, updatedAt: new Date().toISOString() };
-            if (idx >= 0) results[idx] = entry; else results.push(entry);
-            transaction.update(loserRegSnap.ref, { results });
-          }
-        }
+        // Nota: O 3º lugar por derrota em semifinal agora é processado apenas no clique do botão "Finalizar"
       } else {
         // --- É A GRANDE FINAL! ---
-        if (winnerRegSnap?.exists()) {
-          console.log(`[advanceWinner] Campeão: ${safeWinnerId}`);
-          let results = [...(winnerRegSnap.data().results || [])];
-          const idx = results.findIndex(r => r.groupKey === matchData.groupKey);
-          const entry = { groupKey: matchData.groupKey, place: 1, points: 10, updatedAt: new Date().toISOString() };
-          if (idx >= 0) results[idx] = entry; else results.push(entry);
-          transaction.update(winnerRegSnap.ref, { results });
-        }
-
-        if (loserRegSnap?.exists()) {
-          console.log(`[advanceWinner] Vice-Campeão: ${safeLoserId}`);
-          let results = [...(loserRegSnap.data().results || [])];
-          const idx = results.findIndex(r => r.groupKey === matchData.groupKey);
-          const entry = { groupKey: matchData.groupKey, place: 2, points: 7, updatedAt: new Date().toISOString() };
-          if (idx >= 0) results[idx] = entry; else results.push(entry);
-          transaction.update(loserRegSnap.ref, { results });
-        }
+        // Agora o pódio oficial é gerado apenas no botão "Finalizar Categoria" para evitar conflitos
+        console.log(`[advanceWinner] Final da categoria ${matchData.groupKey} concluída. Vencedor: ${safeWinnerId}`);
       }
 
       // 3. Auditoria

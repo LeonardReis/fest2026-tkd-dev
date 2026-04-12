@@ -28,22 +28,18 @@ export function RankingView({ academies, registrations }: { academies: Academy[]
       if (!stats) return;
 
       reg.results?.forEach(res => {
-        // Filtro de modalidade
+        // Filtro de modalidade (insensível a maiúsculas para robustez)
         const mod = res.modality || (res.groupKey.includes('tábuas') ? 'Kyopa' : (res.groupKey.includes('|') ? 'Kyorugui' : 'Poomsae'));
-        if (selectedModality !== 'Geral' && mod !== selectedModality) return;
+        if (selectedModality !== 'Geral' && mod.toLowerCase() !== selectedModality.toLowerCase()) return;
 
         const place = Number(res.place);
         const points = Number(res.points || 0);
 
-        // Somar pontos: Prioriza o campo 'points' (que já deve conter a soma de vitórias + medalha)
-        // Caso não exista, usa o fallback baseado na colocação.
-        if (points > 0) {
-          stats.points += points;
-        } else {
-          if (place === 1) stats.points += 10;
-          else if (place === 2) stats.points += 7;
-          else if (place === 3) stats.points += 5;
-        }
+        // Somar pontos: Ignoramos o campo 'points' do banco (que pode conter sobras de testes antigos)
+        // e calculamos em tempo real baseado apenas na colocação oficial: 10, 7, 5.
+        if (place === 1) stats.points += 10;
+        else if (place === 2) stats.points += 7;
+        else if (place === 3) stats.points += 5;
 
         // Contagem de medalhas permanece baseada no 'place'
         if (place === 1) {

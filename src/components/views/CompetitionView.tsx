@@ -34,7 +34,8 @@ import {
   batchResetCourtMatches, 
   processCourtRanking,
   batchGenerateModuleMatches,
-  resetAllFestivalArena 
+  resetAllFestivalArena,
+  resetModalityArena
 } from '../../services/courtService';
 import { CourtQueueModal } from './CourtQueueModal';
 import { WinnerReasonModal } from '../WinnerReasonModal';
@@ -551,6 +552,21 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
     }
   };
 
+  const handleResetModality = async () => {
+    if (!window.confirm(`⚠️ ATENÇÃO: Deseja resetar apenas o módulo [${selectedCategory}]? Todas as chaves e lutas desta modalidade serão deletadas.`)) return;
+    
+    setIsBatchLoading(true);
+    try {
+      await resetModalityArena(selectedCategory as any);
+      alert(`${selectedCategory} resetado com sucesso!`);
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao resetar modalidade.');
+    } finally {
+      setIsBatchLoading(false);
+    }
+  };
+
   const handleResetArena = async () => {
     if (!confirm("⚠️ ATENÇÃO: Deseja resetar TODA a arena do festival?")) return;
     if (!confirm("🚨 ESTA AÇÃO É IRREVERSÍVEL. Todas as chaves e pódios serão excluídos. Confirmar?")) return;
@@ -790,16 +806,40 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
                 </div>
               </div>
 
-              <Button 
-                variant="ghost"
-                disabled={isBatchLoading}
-                onClick={handleResetArena}
-                className="border-red-600/30 text-red-500 hover:bg-red-600/10 h-10 px-4 rounded-xl group/reset"
-              >
-                <AlertCircle className="w-4 h-4 mr-2 group-hover:rotate-180 transition-transform duration-500" />
-                <span className="text-[9px] font-black uppercase tracking-tighter">Reset Geral</span>
-              </Button>
+              <div className="flex gap-2">
+                <Button 
+                  variant="ghost"
+                  disabled={isBatchLoading}
+                  onClick={handleResetModality}
+                  className="border-amber-600/30 text-amber-500 hover:bg-amber-600/10 h-10 px-4 rounded-xl group/reset"
+                >
+                  <RotateCcw className="w-4 h-4 mr-2 group-hover:rotate-[-120deg] transition-transform duration-500" />
+                  <span className="text-[9px] font-black uppercase tracking-tighter">Reset {selectedCategory}</span>
+                </Button>
+
+                <Button 
+                  variant="ghost"
+                  disabled={isBatchLoading}
+                  onClick={handleResetArena}
+                  className="border-red-600/30 text-red-500 hover:bg-red-600/10 h-10 px-4 rounded-xl group/reset"
+                >
+                  <AlertCircle className="w-4 h-4 mr-2 group-hover:rotate-180 transition-transform duration-500" />
+                  <span className="text-[9px] font-black uppercase tracking-tighter">Reset Geral</span>
+                </Button>
+              </div>
             </div>
+
+            {/* Progress Bar (Visible during batch loading) */}
+            {isBatchLoading && (
+              <div className="absolute bottom-0 left-0 w-full h-1 bg-white/5 overflow-hidden">
+                <motion.div 
+                  initial={{ x: '-100%' }}
+                  animate={{ x: '100%' }}
+                  transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
+                  className="w-1/3 h-full bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_10px_rgba(239,68,68,0.5)]"
+                />
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -920,20 +960,29 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
 
                               {/* Botão de Finalizar Categoria e Gerar Pódio — Poomsae, Kyopa e Kyorugui */}
                               {groupMatches.length > 0 &&
-                               !groupMatches.some(m => m.status !== 'finished') &&
                                !groupAthletes.some(a => a.place) && (
                                 <button 
                                   onClick={async () => {
-                                    if (confirm(`Deseja calcular o ranking e gerar o pódio para "${key}"?`)) {
+                                    const pendingMatches = groupMatches.filter(m => m.status !== 'finished');
+                                    const isKyorugui = selectedCategory === 'Kyorugui';
+                                    const warning = pendingMatches.length > 0 
+                                      ? `⚠️ AVISO: Existem ${pendingMatches.length} lutas não finalizadas. Deseja FORÇAR o fechamento da categoria e gerar o pódio manual assim mesmo?`
+                                      : `Deseja calcular o ranking e gerar o pódio para "${key}"?`;
+                                    
+                                    if (confirm(warning)) {
                                       setLoadingGroup(key);
                                       try {
-                                        if (selectedCategory === 'Kyorugui') {
-                                          const result = await processCourtRanking(groupMatches[0].courtId, key, 'kyorugui');
-                                          if (!result.success) throw new Error('Falha no processamento do ranking de Kyorugui');
-                                        } else {
-                                          await finalizeModalityCategory(key, selectedCategory as any);
-                                        }
-                                        alert('Pódio gerado com sucesso! Verifique a aba de Resultados.');
+                                        // Unificado: processCourtRanking agora cuida de todas as modalidades e aceita 'force'
+                                        const result = await processCourtRanking(
+                                          groupMatches[0].courtId, 
+                                          key, 
+                                          selectedCategory.toLowerCase() as any,
+                                          pendingMatches.length > 0 // force: true se houver pendências
+                                        );
+                                        
+                                        if (!result.success) throw new Error(`Falha no processamento do ranking de ${selectedCategory}`);
+                                        
+                                        alert('Pódio gerado com sucesso! Verifique o Ranking Geral.');
                                       } catch (e) {
                                         alert('Erro ao finalizar: ' + (e as any).message);
                                       } finally {
@@ -1087,6 +1136,8 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
                                   Limpar Fila
                                 </Button>
                               )}
+
+                              {/* Botão Pódio Manual removido - Unificado no Check acima */}
 
                               {/* Chamada Individual (Next) */}
                               {groupMatches.some(m => m.status === 'scheduled') && (

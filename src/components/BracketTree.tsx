@@ -101,7 +101,7 @@ function MatchNode({
           isWinner={match.winnerId === match.competitorA?.athleteId}
           isLoser={isFinished && match.winnerId !== match.competitorA?.athleteId}
           isSuggested={!isFinished && (match.competitorA?.score || 0) > (match.competitorB?.score || 0)}
-          onClick={() => isAdmin && !isFinished && match.competitorA && onSetWinner?.(match.id, match.competitorA.athleteId)}
+          onSetWinner={(matchId, athleteId, reason) => isAdmin && !isFinished && onSetWinner?.(matchId, athleteId, reason || 'points')}
           onScoreChange={(val) => onUpdateScore?.(match.id, 'A', val)}
           rank={
             match.competitorA?.isBye ? null :
@@ -129,7 +129,7 @@ function MatchNode({
           isWinner={match.winnerId === match.competitorB?.athleteId}
           isLoser={isFinished && match.winnerId !== match.competitorB?.athleteId}
           isSuggested={!isFinished && (match.competitorB?.score || 0) > (match.competitorA?.score || 0)}
-          onClick={() => isAdmin && !isFinished && match.competitorB && onSetWinner?.(match.id, match.competitorB.athleteId)}
+          onSetWinner={(matchId, athleteId, reason) => isAdmin && !isFinished && onSetWinner?.(matchId, athleteId, reason || 'points')}
           onScoreChange={(val) => onUpdateScore?.(match.id, 'B', val)}
           rank={
             match.competitorB?.isBye ? null :
@@ -270,14 +270,21 @@ function CompetitorRow({
     <div 
       onClick={canClick ? () => onSetWinner?.('points') : undefined}
       className={cn(
-        "p-4 py-3 flex items-center justify-between transition-all relative overflow-hidden",
-        canClick ? "cursor-pointer hover:bg-white/5 active:scale-95" : "cursor-default",
+        "p-4 py-3 flex items-center justify-between transition-all relative overflow-hidden group/row",
+        canClick ? "cursor-pointer hover:bg-emerald-500/5 active:scale-95" : "cursor-default",
         isWinner && (color === 'blue' ? "bg-blue-600/20" : "bg-red-600/20"),
         isSuggested && !isWinner && "ring-1 ring-inset ring-amber-500/30 bg-amber-500/5",
         isLoser && "grayscale opacity-50",
         isDragging && "opacity-0"
       )}
     >
+      {/* Indicador de Clique para Admin */}
+      {canClick && (
+        <div className="absolute inset-0 bg-emerald-500/0 group-hover/row:bg-emerald-500/[0.03] transition-colors pointer-events-none" />
+      )}
+      {canClick && (
+        <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500/0 group-hover/row:bg-emerald-500 transition-all duration-300 transform -translate-x-full group-hover/row:translate-x-0" />
+      )}
       <div className="flex items-center gap-3 z-10">
         <div className={cn(
           "w-6 h-6 rounded flex items-center justify-center text-[10px] font-black text-white shadow-sm",
@@ -303,20 +310,32 @@ function CompetitorRow({
           </span>
         </div>
 
-        {/* Botão de W.O. específico para Admin */}
+        {/* Controles de Admin (Vitória Manual / W.O.) */}
         {isAdmin && !competitor.isBye && !isWinner && !isLoser && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              if (confirm(`Confirmar vitória por W.O. para ${competitor.name}?`)) {
-                onSetWinner?.('wo');
-              }
-            }}
-            className="ml-2 p-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all group/wo"
-            title="Marcar como W.O."
-          >
-            <AlertCircle className="w-3 h-3" />
-          </button>
+          <div className="flex items-center gap-1.5 ml-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSetWinner?.('points');
+              }}
+              className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-black transition-all group/win shadow-lg active:scale-90"
+              title="Vitória Manual (Normal)"
+            >
+              <Trophy className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm(`Confirmar vitória por W.O. para ${competitor.name}?`)) {
+                  onSetWinner?.('wo');
+                }
+              }}
+              className="p-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all group/wo active:scale-90"
+              title="Vitória por W.O."
+            >
+              <AlertCircle className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
       </div>
 

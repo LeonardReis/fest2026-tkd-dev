@@ -148,11 +148,26 @@ async function provisionFixedSession(courtId: 1|2|3): Promise<CourtSession> {
     active: true,
     expiresAt: expiration.toISOString(),
     label: `Quadra ${courtId} - ${courtId === 1 ? 'POOMSAE / KYOPA' : 'KYORUGUI / FESTIVAL'}`,
-    createdBy: 'SYSTEM_FIXED'
+    createdBy: 'system'
   };
-  
+
   await setDoc(doc(db, 'court_sessions', sessionId), session);
   return session;
+}
+
+/**
+ * Pulso silencioso para manter a sessão da quadra ativa e monitorada.
+ */
+export async function pingCourtSession(sessionId: string) {
+  try {
+    const sessionRef = doc(db, 'court_sessions', sessionId);
+    await updateDoc(sessionRef, {
+      lastActive: serverTimestamp()
+    });
+  } catch (error) {
+    // Falha silenciosa para não interromper a UI
+    console.warn('[CourtService] Falha no ping da sessão:', sessionId);
+  }
 }
 
 /**
@@ -544,35 +559,48 @@ export async function assignDeviceToPost(deviceId: string, judgeIndex: number) {
  * Processa o ranking final de todas as categorias concluídas em uma quadra.
  * targetGroupKey: opcional - se fornecido, foca apenas nesta categoria para evitar race conditions.
  * modalityOverride: opcional - se fornecido, usa esta modalidade em vez de tentar deduzir pela quadra.
+ * force: opcional - se verdadeiro, processa o ranking mesmo que existam partidas pendentes na categoria.
  */
 export async function processCourtRanking(
   courtId: number, 
   targetGroupKey?: string, 
-  modalityOverride?: 'kyorugui' | 'poomsae' | 'kyopa'
+  modalityOverride?: 'kyorugui' | 'poomsae' | 'kyopa',
+  force: boolean = false
 ): Promise<{ success: boolean; winners: PodiumData }> {
   try {
+    console.log(`[Ranking] Iniciando processamento para Quadra ${courtId}${targetGroupKey ? ` - Grupo: ${targetGroupKey}` : ''}${force ? ' (MODO FORÇADO)' : ''}`);
     const batch = writeBatch(db);
     const winnersByGroup: PodiumData = {};
-    
+
     // 1. Buscar partidas desta quadra
-    // Se targetGroupKey existir, buscamos por categoria para ser mais resiliente
-    const q = targetGroupKey 
-      ? query(collection(db, 'matches'), where('courtId', '==', courtId), where('groupKey', '==', targetGroupKey))
-      : query(collection(db, 'matches'), where('courtId', '==', courtId), where('status', '==', 'finished'));
-    
+    let q;
+    if (targetGroupKey) {
+      if (force) {
+        // Modo forçado ignora filtro de 'finished' no nível do banco
+        q = query(collection(db, 'matches'), where('courtId', '==', courtId), where('groupKey', '==', targetGroupKey));
+      } else {
+        q = query(collection(db, 'matches'), where('courtId', '==', courtId), where('groupKey', '==', targetGroupKey), where('status', '==', 'finished'));
+      }
+    } else {
+      q = query(collection(db, 'matches'), where('courtId', '==', courtId), where('status', '==', 'finished'));
+    }
+
     const snap = await getDocs(q);
-    const matches = snap.docs
-      .map(d => ({ id: d.id, ...d.data() } as Match))
-      // Filtrar partidas com BYE (sem competidor real) e já processadas
-      .filter(m => (
-        (targetGroupKey ? m.status === 'finished' : true) &&
-        !m.rankingProcessed &&
-        // Ignorar lutas onde um dos competidores seja BYE (SORTEIO)
-        !(m.competitorA?.isBye) &&
-        !(m.competitorB?.isBye)
-      ));
+    const allFound = snap.docs.map(d => ({ id: d.id, ...(d.data() as object) } as Match));
     
-    if (matches.length === 0) return { success: true, winners: {} };
+    console.log(`[Ranking] Total de lutas encontradas no banco: ${allFound.length}`);
+
+    const matches = allFound.filter(m => (
+      (targetGroupKey && !force ? m.status === 'finished' : true) &&
+      (targetGroupKey ? true : !m.rankingProcessed) &&
+      !(m.competitorA?.isBye) &&
+      !(m.competitorB?.isBye)
+    ));
+
+    if (matches.length === 0) {
+      console.log("[Ranking] Nenhuma luta nova qualificada para processamento.");
+      return { success: true, winners: {} };
+    }
 
     // 2. Agrupar por categoria (groupKey)
     const groups: Record<string, Match[]> = {};
@@ -583,163 +611,132 @@ export async function processCourtRanking(
 
     let processedCount = 0;
 
-    // 3. Processar cada categoria
     for (const groupKey in groups) {
       const catMatches = groups[groupKey];
-      
-      // Determinar modalidade dinamicamente
-      // 1. Usar override se fornecido
-      // 2. Tentar deduzir pelo groupKey (Kyopa geralmente contém "tábuas")
-      // 3. Fallback para Court Id (mantendo retrocompatibilidade se nada for passado)
-      const modality = modalityOverride || 
-                      (groupKey.includes('tábuas') ? 'kyopa' : 
-                       (courtId === 1 ? 'poomsae' : 'kyorugui'));
-      
-      const isPoomsaeLike = modality === 'poomsae' || modality === 'kyopa';
+      // Inferência robusta de modalidade
+      const inferred = groupKey.includes('|') ? 'Kyorugui' : (groupKey.includes('tábuas') ? 'Kyopa' : (courtId === 1 ? 'Poomsae' : 'Kyorugui'));
+      const rawMod = (modalityOverride || inferred).toLowerCase();
+      const modality = (rawMod === 'kyopa' ? 'Kyopa' : (rawMod === 'poomsae' ? 'Poomsae' : 'Kyorugui')) as 'Kyorugui' | 'Poomsae' | 'Kyopa';
+      const isPoomsaeLike = modality === 'Poomsae' || modality === 'Kyopa';
+
+      console.log(`[Ranking] Processando grupo: ${groupKey} (${modality})`);
+      const podium: PodiumWinner[] = [];
 
       if (isPoomsaeLike) {
-        // Poomsae/Kyopa: Ordenar por finalScore desc
-        const sorted = [...catMatches].sort((a, b) => (b.finalScore || 0) - (a.finalScore || 0));
-        
-        // Atribuir medalhas aos 3 primeiros
-        for (let i = 0; i < Math.min(3, sorted.length); i++) {
-          const match = sorted[i];
-          const athleteId = match.competitorA?.athleteId;
-          const place = (i + 1) as 1 | 2 | 3;
-          
-          if (athleteId) {
-              let points = 0;
-              if (place === 1) points = 10;
-              else if (place === 2) points = 7;
-              else if (place === 3) points = 5;
-
-              await updateRegistrationResult(batch, athleteId, {
-                groupKey,
-                place,
-                score: match.finalScore,
-                points,
-                modality: modality === 'kyopa' ? 'Kyopa' : 'Poomsae'
-              });
+        // Ordenação Poomsae/Kyopa com Tie-Break
+        const sorted = [...catMatches].sort((a, b) => {
+          if ((b.finalScore || 0) !== (a.finalScore || 0)) return (b.finalScore || 0) - (a.finalScore || 0);
+          if (modality === 'Poomsae') {
+            if ((b.finalApresentacao || 0) !== (a.finalApresentacao || 0)) return (b.finalApresentacao || 0) - (a.finalApresentacao || 0);
+            return (b.finalTecnica || 0) - (a.finalTecnica || 0);
           }
-          
-          
-          if (!winnersByGroup[groupKey]) winnersByGroup[groupKey] = [];
-          winnersByGroup[groupKey].push({
-            place,
-            athleteName: match.competitorA?.name || '?',
-            academy: match.competitorA?.academy || '?',
-            score: match.finalScore
-          });
-
-          // Marcar partida como processada
-          batch.update(doc(db, 'matches', match.id), { rankingProcessed: true });
-          processedCount++;
-        }
-
-        // MARCAR TODAS AS OUTRAS PARTIDAS DA CATEGORIA COMO PROCESSADAS (mesmo não medalhistas)
-        catMatches.forEach(m => {
-          if (!m.rankingProcessed) {
-            batch.update(doc(db, 'matches', m.id), { rankingProcessed: true });
-          }
+          return 0;
         });
-      } else {
-        // Kyorugui: Lógica de chaves (bracket)
-        // No Festival, simplificamos: o vencedor da final é 1º, perdedor da final é 2º.
-        // Se houver apenas uma luta na categoria nesta quadra, assumimos que é a final direta.
-        const sortedBySeq = [...catMatches].sort((a, b) => (b.matchSequence || 0) - (a.matchSequence || 0));
-        const finalMatch = sortedBySeq[0];
+        for (let i = 0; i < Math.min(4, sorted.length); i++) { // Top 4 para cobrir até bronze (ou 1pt extra se necessário)
+          const match = sorted[i];
+          const athlete = match.competitorA;
+          const place = (i + 1) as 1 | 2 | 3;
+          if (athlete) {
+            let points = 0;
+            if (place === 1) points = 10;
+            else if (place === 2) points = 7;
+            else if (place === 3) points = 5;
 
-        if (finalMatch.winnerId && finalMatch.competitorA && finalMatch.competitorB) {
-          const isWinnerA = finalMatch.winnerId === finalMatch.competitorA.athleteId;
+            console.log(`[Ranking] ${place}º lugar: ${athlete.name} (${match.finalScore} pts)`);
+            await updateRegistrationResult(batch, athlete.athleteId, {
+              groupKey,
+              place,
+              score: match.finalScore,
+              points: points, // Medal points
+              matchPoints: 0, // Resetar pontos de vitórias individuais para foco apenas em medalhas
+              modality
+            });
+            podium.push({ place, athleteName: athlete.name, academy: athlete.academy, score: match.finalScore });
+          }
+          batch.update(doc(db, 'matches', match.id), { rankingProcessed: true });
+        }
+      } else {
+        // Kyorugui: Achar a FINAL (luta sem nextMatchId)
+        const finalMatch = catMatches.find(m => !m.nextMatchId);
+        
+        if (finalMatch && finalMatch.winnerId) {
+          const winnerId = finalMatch.winnerId;
+          const isWinnerA = String(winnerId) === String(finalMatch.competitorA?.athleteId);
           const winner = isWinnerA ? finalMatch.competitorA : finalMatch.competitorB;
           const loser = isWinnerA ? finalMatch.competitorB : finalMatch.competitorA;
 
-          // 1º Lugar
-          await updateRegistrationResult(batch, winner.athleteId, {
-            groupKey,
-            place: 1,
-            points: 10,
-            modality: 'Kyorugui',
-            roundScore: finalMatch.winnerRounds ? `${finalMatch.winnerRounds.a}-${finalMatch.winnerRounds.b}` : undefined,
-            roundPoints: finalMatch.roundScores ? [
-              finalMatch.roundScores.r1,
-              finalMatch.roundScores.r2,
-              finalMatch.roundScores.r3
-            ].filter(r => r && (r.a > 0 || r.b > 0)) : undefined
-          });
-
-          // 2º Lugar
-          await updateRegistrationResult(batch, loser.athleteId, {
-            groupKey,
-            place: 2,
-            points: 7,
-            modality: 'Kyorugui',
-            roundScore: finalMatch.winnerRounds ? `${finalMatch.winnerRounds.b}-${finalMatch.winnerRounds.a}` : undefined,
-            roundPoints: finalMatch.roundScores ? [
-              finalMatch.roundScores.r1,
-              finalMatch.roundScores.r2,
-              finalMatch.roundScores.r3
-            ].filter(r => r && (r.a > 0 || r.b > 0)) : undefined
-          });
-
-          // 3º Lugar: Se houver semifinais no mesmo lote de processamento
-          const semiMatches = catMatches.filter(m => m.id !== finalMatch.id);
-          for (const semi of semiMatches) {
-             // Descobrir o perdedor desta semi
-             const semiWinnerId = semi.winnerId;
-             const semiLoserId = semiWinnerId === semi.competitorA?.athleteId 
-                ? semi.competitorB?.athleteId 
-                : semi.competitorA?.athleteId;
-             const semiLoser = semi.competitorA?.athleteId === semiLoserId ? semi.competitorA : semi.competitorB;
-             
-             // ✅ GUARD BYE: Nunca registrar BYE como 3º lugar
-             const isByeLoser = semiLoser?.isBye === true || semiLoser?.name?.toUpperCase().includes('BYE') || semiLoser?.name?.toUpperCase().includes('SORTEIO');
-             
-             if (semiLoserId && !isByeLoser) {
-                await updateRegistrationResult(batch, semiLoserId, {
-                  groupKey,
-                  place: 3,
-                  points: 5,
-                  modality: 'Kyorugui'
-                });
-
-                if (!winnersByGroup[groupKey]) winnersByGroup[groupKey] = [];
-                // Evitar duplicar 3º lugar se houver duas semis
-                winnersByGroup[groupKey].push({
-                  place: 3,
-                  athleteName: semiLoser?.name || '?',
-                  academy: semiLoser?.academy || '?'
-                });
-             }
-             batch.update(doc(db, 'matches', semi.id), { rankingProcessed: true });
+          if (winner) {
+            console.log(`[Ranking] 1º lugar (Ouro): ${winner.name}`);
+            await updateRegistrationResult(batch, winner.athleteId, {
+              groupKey,
+              place: 1,
+              points: 10,
+              matchPoints: 0, // Resetar conforme regra WT focada em medalhas
+              modality
+            });
+            podium.push({ place: 1, athleteName: winner.name, academy: winner.academy });
+          }
+          if (loser) {
+            console.log(`[Ranking] 2º lugar (Prata): ${loser.name}`);
+            await updateRegistrationResult(batch, loser.athleteId, {
+              groupKey,
+              place: 2,
+              points: 7,
+              matchPoints: 0, // Resetar conforme regra WT focada em medalhas
+              modality
+            });
+            podium.push({ place: 2, athleteName: loser.name, academy: loser.academy });
           }
 
-          if (!winnersByGroup[groupKey]) winnersByGroup[groupKey] = [];
-          winnersByGroup[groupKey].push(
-            { place: 1, athleteName: winner.name, academy: winner.academy },
-            { place: 2, athleteName: loser.name, academy: loser.academy }
-          );
-
+          // 3º lugar: Perdedores das Semifinais
+          const semiMatches = catMatches.filter(m => m.nextMatchId === finalMatch.id);
+          for (const semi of semiMatches) {
+            const semiWinnerId = semi.winnerId;
+            const semiLoserId = semiWinnerId === semi.competitorA?.athleteId ? semi.competitorB?.athleteId : semi.competitorA?.athleteId;
+            const semiLoser = semi.competitorA?.athleteId === semiLoserId ? semi.competitorA : semi.competitorB;
+            
+            if (semiLoserId && semiLoser && !semiLoser.isBye) {
+              console.log(`[Ranking] 3º lugar (Bronze): ${semiLoser.name}`);
+              await updateRegistrationResult(batch, semiLoserId, {
+                groupKey,
+                place: 3,
+                points: 5,
+                matchPoints: 0, // Resetar para Bronze duplo (WT)
+                modality
+              });
+              podium.push({ place: 3, athleteName: semiLoser.name, academy: semiLoser.academy });
+            }
+            batch.update(doc(db, 'matches', semi.id), { rankingProcessed: true });
+          }
           batch.update(doc(db, 'matches', finalMatch.id), { rankingProcessed: true });
-          processedCount += catMatches.length;
+        } else if (finalMatch) {
+          console.warn(`[Ranking] Final ${finalMatch.id} ainda não tem vencedor definido.`);
         }
+      }
+
+      if (podium.length > 0) {
+        winnersByGroup[groupKey] = podium;
+        processedCount++;
       }
     }
 
-    await batch.commit();
-    return { success: true, winners: winnersByGroup };
-  } catch (error: any) {
-    console.error("ERRO CRÍTICO no processCourtRanking:", error);
-    if (error.message?.includes('index') || error.code === 'failed-precondition') {
-      console.warn("ALERTA: Possível índice composto faltando ou erro de pré-condição no Firestore!");
-      console.dir(error);
+    if (processedCount > 0) {
+      await batch.commit();
+      console.log(`[Ranking] Processamento concluído com sucesso. ${processedCount} categorias atualizadas.`);
     }
+    return { success: true, winners: winnersByGroup };
+  } catch (error) {
+    console.error("Erro CRÍTICO no processCourtRanking:", error);
     return { success: false, winners: {} };
   }
 }
 
 /**
  * Função principal para gerar todas as chaves de um módulo e distribuir nas quadras.
+ */
+/**
+ * Função principal para gerar todas as chaves de um módulo e distribuir nas quadras.
+ * Otimizada com sequenciamento intercalado para melhor fluxo da arena.
  */
 export async function batchGenerateModuleMatches(
   modality: 'Kyorugui' | 'Poomsae' | 'Kyopa',
@@ -768,19 +765,10 @@ export async function batchGenerateModuleMatches(
     const kSnap = await getDocs(kMatchQ);
     let lastKyoruguiCourt = kSnap.empty ? 3 : (kSnap.docs[0].data().courtId as number);
 
-    let batch = writeBatch(db);
-    let operationCount = 0;
-    let totalMatchesCreated = 0;
-    let totalCategoriesProcessed = 0;
+    const categoriesMatches: { targetCourtId: 1|2|3, matches: Match[], athletes: any[], groupKey: string }[] = [];
 
+    // 3. Gerar todas as lutas primeiro (sem salvar)
     for (const [groupKey, athletes] of pendingCategories) {
-      // Se chegarmos perto do limite de 500 ops (400 para segurança), enviamos o lote atual e abrimos novo
-      if (operationCount > 400) {
-        await batch.commit();
-        batch = writeBatch(db);
-        operationCount = 0;
-      }
-
       const catAthletes = athletes.map(a => ({ id: a.regId, name: a.name, academy: a.academy }));
       const categoryId = sanitizeForId(groupKey);
       let newMatches: Match[] = [];
@@ -788,19 +776,13 @@ export async function batchGenerateModuleMatches(
 
       if (modality === 'Kyorugui') {
         newMatches = generateBracket(festivalId, categoryId, groupKey, catAthletes);
-        
-        // ORDENAÇÃO EXPLÍCITA: Round ASC, MatchNumber ASC
-        // Isso garante que Quartas > Semis > Finais na sequência da quadra
         newMatches.sort((a, b) => {
           if (a.round !== b.round) return a.round - b.round;
           return a.matchNumber - b.matchNumber;
         });
-
-        // Alternar Kyorugui entre 2 e 3
         targetCourtId = (lastKyoruguiCourt === 2 ? 3 : 2) as 1|2|3;
         lastKyoruguiCourt = targetCourtId;
       } else {
-        // Poomsae/Kyopa: Lista direta
         const prefix = modality === 'Poomsae' ? 'poomsae_' : 'kyopa_';
         const fullCatId = prefix + categoryId;
         const shuffled = [...catAthletes].sort(() => Math.random() - 0.5);
@@ -813,75 +795,74 @@ export async function batchGenerateModuleMatches(
           matchNumber: idx + 1,
           round: 1,
           status: 'scheduled',
-          competitorA: {
-            athleteId: a.id,
-            name: a.name,
-            academy: a.academy,
-            score: 0
-          }
+          competitorA: { athleteId: a.id, name: a.name, academy: a.academy, score: 0 }
         })) as any[];
-        
         targetCourtId = 1;
       }
+      categoriesMatches.push({ targetCourtId, matches: newMatches, athletes, groupKey });
+    }
 
-      // Adicionar partidas ao lote e aplicar sequenciamento de quadra
-      for (const [idx, m] of newMatches.entries()) {
-        const sequence = courtSequences[targetCourtId] + idx;
-        const updates = {
-          ...m,
-          courtId: targetCourtId,
-          matchSequence: sequence,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        };
-        
-        // Autochamada se for a primeira e a sequência for a inicial (assumindo quadra livre no lote)
-        // Nota: Em lote, simplificamos para apenas agendar para evitar race conditions de 'live'
-        
-        batch.set(doc(db, 'matches', m.id), updates);
-        operationCount++;
-      }
+    // 4. Salvar no Firestore com intercalamento (Round Robin de Categorias)
+    let batch = writeBatch(db);
+    let operationCount = 0;
+    let totalMatchesCreated = 0;
+    
+    // Intercalar: Pega a luta de índice I de todas as categorias, depois índice I+1...
+    // Isso garante que a arena não "trave" em uma única categoria por muito tempo.
+    const maxMatchesInCategory = Math.max(...categoriesMatches.map(c => c.matches.length));
+    
+    for (let i = 0; i < maxMatchesInCategory; i++) {
+        for (const catData of categoriesMatches) {
+            const match = catData.matches[i];
+            if (!match) continue;
 
-      // Atualizar sequenciador da quadra
-      courtSequences[targetCourtId] += newMatches.length;
-      totalMatchesCreated += newMatches.length;
+            if (operationCount > 400) {
+                await batch.commit();
+                batch = writeBatch(db);
+                operationCount = 0;
+            }
 
-      // Atualizar registros dos atletas
-      for (const athlete of athletes) {
-        const discipline = modality === 'Kyopa' ? groupKey.split(' - ')[0] : modality;
-        const regRef = doc(db, 'registrations', athlete.regId);
-        
-        batch.update(regRef, {
-          [`disciplineStatus.${discipline}`]: {
-            isMatched: true,
-            assignedCategory: groupKey
-          },
-          updatedAt: serverTimestamp()
-        });
-        operationCount++;
-      }
+            const sequence = courtSequences[catData.targetCourtId]++;
+            batch.set(doc(db, 'matches', match.id), {
+                ...match,
+                courtId: catData.targetCourtId,
+                matchSequence: sequence,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            });
+            operationCount++;
+            totalMatchesCreated++;
+        }
+    }
 
-      totalCategoriesProcessed++;
+    // 5. Atualizar registros dos atletas
+    for (const catData of categoriesMatches) {
+        for (const athlete of catData.athletes) {
+            if (operationCount > 400) {
+                await batch.commit();
+                batch = writeBatch(db);
+                operationCount = 0;
+            }
+
+            const discipline = modality === 'Kyopa' ? catData.groupKey.split(' - ')[0] : modality;
+            batch.update(doc(db, 'registrations', athlete.regId), {
+                [`disciplineStatus.${discipline}`]: {
+                    isMatched: true,
+                    assignedCategory: catData.groupKey
+                },
+                updatedAt: serverTimestamp()
+            });
+            operationCount++;
+        }
     }
 
     await batch.commit();
 
-    // Cálculo de Tempo Previsto
-    let estimatedMinutes = 0;
-    if (modality === 'Kyorugui') {
-      estimatedMinutes = totalMatchesCreated * 7;
-    } else if (modality === 'Poomsae') {
-      estimatedMinutes = totalMatchesCreated * 5;
-    } else if (modality === 'Kyopa') {
-      estimatedMinutes = totalMatchesCreated * 3;
-    }
-
     return { 
-      categoriesProcessed: totalCategoriesProcessed, 
+      categoriesProcessed: categoriesMatches.length, 
       matchesCreated: totalMatchesCreated,
-      estimatedMinutes
+      estimatedMinutes: totalMatchesCreated * (modality === 'Kyorugui' ? 7 : modality === 'Poomsae' ? 5 : 3)
     };
-
   } catch (error) {
     console.error("Erro no batchGenerateModuleMatches:", error);
     handleFirestoreError(error, OperationType.UPDATE, 'matches');
@@ -890,19 +871,92 @@ export async function batchGenerateModuleMatches(
 }
 
 /**
+ * Reseta o estado da arena apenas para uma modalidade específica.
+ * Proporciona segurança para corrigir erros sem afetar outros módulos.
+ */
+export async function resetModalityArena(modality: 'Kyorugui' | 'Poomsae' | 'Kyopa') {
+    try {
+        const matchesQ = query(collection(db, 'matches'));
+        const matSnap = await getDocs(matchesQ);
+        const matches = matSnap.docs.map(d => ({ id: d.id, ref: d.ref, ...d.data() } as any));
+        
+        // Filtrar apenas lutas da modalidade alvo
+        const targetMatches = matches.filter(m => {
+            if (modality === 'Kyopa') return m.groupKey?.includes('tábuas');
+            if (modality === 'Poomsae') return (m.groupKey?.includes('Poomsae') || m.groupKey?.includes('Festival')) && !m.groupKey?.includes('|');
+            return m.groupKey?.includes('|'); // Kyorugui usa o pipe no groupKey
+        });
+
+        let batch = writeBatch(db);
+        let count = 0;
+
+        // 1. Deletar as lutas encontradas
+        for (const match of targetMatches) {
+            batch.delete(match.ref);
+            count++;
+            if (count >= 400) {
+                await batch.commit();
+                batch = writeBatch(db);
+                count = 0;
+            }
+        }
+
+        // 2. Resetar atletas vinculados a esta modalidade
+        const regQ = query(collection(db, 'registrations'));
+        const regSnap = await getDocs(regQ);
+        
+        for (const docSnap of regSnap.docs) {
+            const data = docSnap.data();
+            const disciplineStatus = { ...data.disciplineStatus };
+            let changed = false;
+
+            Object.keys(disciplineStatus).forEach(key => {
+                const isMatch = (modality === 'Kyopa' && key.includes('Kyopa')) ||
+                                (modality === 'Poomsae' && (key === 'Poomsae' || key === 'Festival')) ||
+                                (modality === 'Kyorugui' && key === 'Kyorugui');
+                
+                if (isMatch && disciplineStatus[key]?.isMatched) {
+                    disciplineStatus[key].isMatched = false;
+                    changed = true;
+                }
+            });
+
+            if (changed) {
+                const results = (data.results || []).filter((r: any) => r.modality?.toLowerCase() !== modality.toLowerCase());
+                batch.update(docSnap.ref, {
+                    disciplineStatus,
+                    results,
+                    updatedAt: serverTimestamp()
+                });
+                count++;
+                if (count >= 400) {
+                    await batch.commit();
+                    batch = writeBatch(db);
+                    count = 0;
+                }
+            }
+        }
+
+        if (count > 0) await batch.commit();
+        return { matchesDeleted: targetMatches.length, athletesReset: '?' };
+    } catch (error) {
+        console.error("Erro no resetModalityArena:", error);
+        handleFirestoreError(error, OperationType.DELETE, 'matches');
+        throw error;
+    }
+}
+
+/**
  * Reseta COMPLETAMENTE o estado da arena para um festival.
  * Deleta todas as partidas e reseta todos os atletas para 'isMatched: false'.
  */
 export async function resetAllFestivalArena(festivalId: string = 'fest2026') {
   try {
-    // 1. Deletar TODAS as partidas do banco para este ambiente
     const matchesQ = query(collection(db, 'matches'));
     const matSnap = await getDocs(matchesQ);
     
     let batch = writeBatch(db);
     let count = 0;
-    
-    console.log(`[resetAllFestivalArena] Deletando ${matSnap.size} partidas...`);
     
     for (const docSnap of matSnap.docs) {
       batch.delete(docSnap.ref);
@@ -914,25 +968,19 @@ export async function resetAllFestivalArena(festivalId: string = 'fest2026') {
       }
     }
     
-    // 2. BUSCA TOTAL: Resetar todos os registros de atletas (Limpeza Profunda)
-    // Buscamos todas as inscrições para garantir que nenhum 'rastro' interno (deep field) escape.
     const regQ = query(collection(db, 'registrations'));
     const regSnap = await getDocs(regQ);
-    
-    console.log(`[resetAllFestivalArena] Iniciando faxina em ${regSnap.size} registros de atletas...`);
     
     for (const docSnap of regSnap.docs) {
       const data = docSnap.data();
       const disciplineStatus = { ...data.disciplineStatus };
       
-      // Forçar isMatched: false em todas as modalidades (Kyorugui, Poomsae, Kyopa)
       Object.keys(disciplineStatus).forEach(key => {
         if (disciplineStatus[key]) {
           disciplineStatus[key].isMatched = false;
         }
       });
 
-      // Update atômico: Raiz + Deep Fields + Resultados
       batch.update(docSnap.ref, {
         isMatched: false,
         disciplineStatus,
@@ -964,47 +1012,84 @@ export async function resetAllFestivalArena(festivalId: string = 'fest2026') {
   }
 }
 
+
 /**
  * Função auxiliar para atualizar o array results de uma Registration
  */
-async function updateRegistrationResult(batch: any, athleteId: string, result: any) {
+async function updateRegistrationResult(batch: any, regId: string, result: any) {
   try {
-    // Buscar a inscrição confirmada deste atleta
-    const q = query(
-      collection(db, 'registrations'),
-      where('athleteId', '==', athleteId),
-      where('status', '==', 'Confirmado')
-    );
-    const snap = await getDocs(q);
+    // Acesso direto ao documento pela ID (que no sistema de chaves é a regId)
+    const regRef = doc(db, 'registrations', regId);
+    const snap = await getDoc(regRef);
     
-    snap.docs.forEach(d => {
-      const reg = d.data();
+    if (snap.exists()) {
+      const reg = snap.data();
       const currentResults = reg.results || [];
       // Limpar campos undefined para não quebrar o Firestore
       const cleanResult = Object.fromEntries(Object.entries(result).filter(([_, v]) => v !== undefined));
 
       // Atualizar ou adicionar resultado (mesclando campos se já houver)
       const resIdx = currentResults.findIndex((r: any) => r.groupKey === result.groupKey);
+      
+      const newEntry = {
+        ...cleanResult,
+        processedAt: new Date().toISOString()
+      };
+
       if (resIdx >= 0) {
+        const existing = currentResults[resIdx];
+        
+        // Se veio 'points' (vindo do processCourtRanking), tratamos como MedalPoints (substitui o anterior)
+        // Se veio 'matchPoints' (vindo do finishAndCycleMatch), incrementamos
+        
+        let medalPoints = Number(existing.medalPoints || 0);
+        const newMedalPoints = cleanResult.points !== undefined ? Number(cleanResult.points) : undefined;
+        if (newMedalPoints !== undefined) {
+          medalPoints = newMedalPoints;
+        }
+
+        let matchPoints = Number(existing.matchPoints || 0);
+        const addedMatchPoints = cleanResult.matchPoints !== undefined ? Number(cleanResult.matchPoints) : 0;
+        matchPoints += addedMatchPoints;
+
+        // Limpar os campos temporários do newEntry para salvar no formato final
+        const { matchPoints: _m, points: _p, ...finalEntry } = newEntry as any;
+
         currentResults[resIdx] = { 
-          ...currentResults[resIdx], 
-          ...cleanResult, 
-          // Se já haviam pontos, eles são substituídos ou somados? `processCourtRanking` envia `points`. 
-          // Para somar a pontuação de vitórias (5) com medalha (ex: 20), precisamos fazer:
-          points: (currentResults[resIdx].points || 0) + (cleanResult.points || 0),
-          processedAt: new Date().toISOString() 
+          ...existing, 
+          ...finalEntry,
+          medalPoints,
+          matchPoints,
+          points: medalPoints + matchPoints 
         };
       } else {
-        currentResults.push({ ...cleanResult, processedAt: new Date().toISOString() });
+        const medalPoints = cleanResult.points !== undefined ? Number(cleanResult.points) : 0;
+        const matchPoints = cleanResult.matchPoints !== undefined ? Number(cleanResult.matchPoints) : 0;
+        
+        const { matchPoints: _m, points: _p, ...finalEntry } = newEntry as any;
+
+        currentResults.push({
+          ...finalEntry,
+          medalPoints,
+          matchPoints,
+          points: medalPoints + matchPoints
+        });
       }
 
-      batch.update(doc(db, 'registrations', d.id), {
-        results: currentResults,
-        updatedAt: serverTimestamp()
-      });
-    });
+      if (batch && typeof batch.update === 'function') {
+        batch.update(regRef, {
+          results: currentResults,
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        await updateDoc(regRef, {
+          results: currentResults,
+          updatedAt: serverTimestamp()
+        });
+      }
+    }
   } catch (e) {
-    console.error(`Erro ao atualizar registro do atleta ${athleteId}:`, e);
+    console.error(`Erro ao atualizar registro ${regId}:`, e);
   }
 }
 
@@ -1114,19 +1199,15 @@ export async function finishAndCycleMatch(
             groupKey.includes('tábuas') ? 'Kyopa' : 
             (groupKey.includes('|') ? 'Kyorugui' : 'Poomsae');
 
+          // Removida atribuição de matchPoints (+3) para simplificar e unificar ranking conforme WT
+          // Agora apenas as medalhas (10, 7, 5) contam no ranking final processado em processCourtRanking
           const resultEntry = {
             groupKey,
             modality: inferredModality,
-            points: (results[idx]?.points || 0) + 3, // +3 pts por vitória de fase
             updatedAt: new Date().toISOString()
           };
-          if (idx >= 0) results[idx] = { ...results[idx], ...resultEntry };
-          else results.push(resultEntry);
-          // Só escreve fields permitidos pelas rules: results + updatedAt (top-level)
-          await updateDoc(winnerRegRef, {
-            results,
-            updatedAt: new Date().toISOString()
-          });
+          
+          await updateRegistrationResult(null, winnerId, resultEntry);
         }
       } catch (regError: any) {
         // Não bloqueia o fluxo — apenas loga o aviso
@@ -1142,7 +1223,15 @@ export async function finishAndCycleMatch(
     // ================================================================
     let podiumWinners: PodiumData | null = null;
     if (options.isLastOfGroup) {
-      const rankingResult = await processCourtRanking(options.courtId, options.groupKey);
+      // Delay aumentado levemente para garantir consistência eventual do Firestore 
+      // (essencial se as leituras do processCourtRanking forem fora da transação)
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // Inferir modalidade explicitamente para passar ao ranking
+      const modality = (options.groupKey || '').includes('|') ? 'kyorugui' : 
+                       (options.groupKey || '').includes('tábuas') ? 'kyopa' : 'poomsae';
+
+      const rankingResult = await processCourtRanking(options.courtId, options.groupKey, modality as any);
       if (rankingResult.success) {
         podiumWinners = rankingResult.winners;
       }

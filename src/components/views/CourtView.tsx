@@ -4,7 +4,7 @@ import { Shield, Clock, AlertCircle, Check, Ban, Flag, Trophy, User as UserIcon,
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, onSnapshot, query, collection, where, orderBy, limit, updateDoc, serverTimestamp, runTransaction, writeBatch } from 'firebase/firestore';
 import { auth, db } from '../../firebase';
-import { validateCourtSession, submitPoomsaeScore, callMatch, finishMatch, batchCallMatches, batchResetCourtMatches, processCourtRanking, PodiumData, updateMatchRoundScore, finishAndCycleMatch, PodiumWinner } from '../../services/courtService';
+import { validateCourtSession, submitPoomsaeScore, callMatch, finishMatch, batchCallMatches, batchResetCourtMatches, processCourtRanking, PodiumData, updateMatchRoundScore, finishAndCycleMatch, PodiumWinner, pingCourtSession } from '../../services/courtService';
 import { CourtSession, Match } from '../../types';
 import { BeltBadge } from '../BeltBadge';
 import { Button, Card, cn } from '../ui';
@@ -143,6 +143,20 @@ export function CourtView({ sessionId, user, profile, authInitialized, deviceId 
     return unsub;
   }, [deviceId, internalInitialized, judgeIndex]);
 
+  // HEARTBEAT (Pulso de Arena)
+  useEffect(() => {
+    if (!sessionId || !isAuthenticated) return;
+    
+    // Ping inicial
+    pingCourtSession(sessionId);
+
+    const interval = setInterval(() => {
+      pingCourtSession(sessionId);
+    }, 30000); // 30 segundos
+
+    return () => clearInterval(interval);
+  }, [sessionId, isAuthenticated]);
+
   // Fallback: Se for Luta ou Quebramento e não houver deviceId ou atribuição, assume-se Mesa Central
   useEffect(() => {
     if (session && (session.type === 'kyorugui' || session.type === 'kyopa') && judgeIndex === null && !deviceId) {
@@ -213,14 +227,21 @@ export function CourtView({ sessionId, user, profile, authInitialized, deviceId 
             <div className="flex items-center gap-2 pr-3 sm:pr-6 border-r border-white/10">
               <Button 
                 disabled={isProcessingRanking}
-                onClick={async () => {
-                   if (!confirm("Confirmar processamento de ranking?")) return;
-                   setIsProcessingRanking(true);
-                   try {
-                      const result = await processCourtRanking(Number(session.courtId), undefined, session.type as any);
+                  onClick={async () => {
+                    const isForced = window.confirm("Deseja FORÇAR o ranking? (Use apenas se a categoria estiver travada)");
+                    if (!isForced && !confirm("Confirmar processamento de ranking normal?")) return;
+                    
+                    setIsProcessingRanking(true);
+                    try {
+                      const result = await processCourtRanking(
+                        Number(session.courtId), 
+                        undefined, 
+                        session.type as any,
+                        isForced
+                      );
                       if (result.success && result.winners) setPodiumData(result.winners);
                     } catch (e: any) { alert(e.message); } finally { setIsProcessingRanking(false); }
-                }}
+                  }}
                 variant="ghost" 
                 className="h-8 px-3 text-[9px] font-black uppercase tracking-widest gap-2 bg-amber-500/10 border border-amber-500/20 text-amber-500 hover:bg-amber-500/20"
               >
