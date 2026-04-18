@@ -14,13 +14,14 @@ export function ArenaCallPanel() {
     // Escuta todas as lutas ativas ou agendadas
     const q = query(
       collection(db, 'matches'),
-      where('status', 'in', ['live', 'scheduled']),
-      orderBy('matchSequence', 'asc')
+      where('status', 'in', ['live', 'scheduled'])
     );
 
     const unsubscribe = onSnapshot(q, (snap) => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as Match));
-      setMatches(data);
+      // Ordena em memória para evitar a necessidade de índice composto
+      const sortedData = data.sort((a, b) => (a.matchSequence || 0) - (b.matchSequence || 0));
+      setMatches(sortedData);
       setLoading(false);
     });
 
@@ -77,7 +78,7 @@ export function ArenaCallPanel() {
       </header>
 
       {/* Grid de Quadras */}
-      <main className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-8 pb-12">
+      <main className="flex-1 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 pb-12">
         {[1, 2, 3].map(id => {
           const { active, upcoming } = getCourtMatches(id);
           return (
@@ -121,7 +122,7 @@ function CourtColumn({ id, active, upcoming }: { id: number, active: Match | nul
               <span className="text-3xl font-black italic">{id}</span>
            </div>
            <div>
-              <h2 className="text-2xl font-black uppercase italic tracking-tighter">Quadra {id}</h2>
+              <h2 className="text-2xl font-black uppercase italic tracking-tighter">Arena {id}</h2>
               <div className="flex items-center gap-2 mt-1">
                  <span className={cn(
                     "w-1.5 h-1.5 rounded-full animate-pulse",
@@ -136,7 +137,7 @@ function CourtColumn({ id, active, upcoming }: { id: number, active: Match | nul
       </div>
 
       {/* Live Section */}
-      <div className="flex-1 p-8 space-y-8">
+      <div className="flex-1 p-6 sm:p-8 space-y-6 sm:space-y-8">
         <AnimatePresence mode="wait">
           {active ? (
             <motion.div
@@ -162,7 +163,7 @@ function CourtColumn({ id, active, upcoming }: { id: number, active: Match | nul
 
               <div className="pt-6 border-t border-white/5">
                 <div className="text-[10px] font-black uppercase tracking-[0.3em] text-stone-500 mb-2">Categoria</div>
-                <div className="text-lg font-black uppercase italic text-white line-clamp-2">
+                <div className="text-base sm:text-lg font-black uppercase italic text-white">
                   {active.groupKey}
                 </div>
               </div>
@@ -197,10 +198,10 @@ function CourtColumn({ id, active, upcoming }: { id: number, active: Match | nul
                      #{m.matchSequence}
                   </div>
                   <div className="flex-1 min-w-0">
-                     <p className="text-[11px] font-black uppercase italic truncate text-white">
+                     <p className="text-[12px] font-black uppercase italic text-white">
                         {m.competitorA?.name} <span className="text-stone-600 italic px-1">X</span> {m.competitorB?.name}
                      </p>
-                     <p className="text-[8px] font-bold text-stone-500 truncate uppercase mt-0.5">
+                     <p className="text-[9px] font-bold text-stone-500 uppercase mt-1">
                         {m.groupKey}
                      </p>
                   </div>
@@ -230,7 +231,7 @@ function CompetitorBox({ name, side }: { name: string, side: 'A' | 'B' }) {
         )}>
           Competidor {side}
         </span>
-        <div className="text-xl font-black uppercase italic truncate text-white tracking-tighter">
+        <div className="text-lg sm:text-xl font-black uppercase italic text-white tracking-tighter leading-tight">
           {name}
         </div>
       </div>

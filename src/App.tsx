@@ -244,6 +244,7 @@ export default function App() {
   // Academies + Athletes + Settings: dependem apenas do profile
   useEffect(() => {
     if (!profile) return;
+    if (view === 'court' || view === 'join' || view === 'call-panel') return;
     const listeners: (() => void)[] = [];
 
     const qAcademies = profile.role === 'admin'
@@ -285,6 +286,8 @@ export default function App() {
   const academyIdsString = academies.map(a => a.id).sort().join(',');
   useEffect(() => {
     if (!profile) return;
+    if (view === 'court' || view === 'join' || view === 'call-panel') return;
+
     const listeners: (() => void)[] = [];
 
     const buildQuery = (colName: string) => {
@@ -362,7 +365,7 @@ export default function App() {
     );
   }
 
-  if (!user && view !== 'court' && view !== 'join') {
+  if (!user && view !== 'court' && view !== 'join' && view !== 'call-panel') {
     return (
       <div className="min-h-screen flex bg-stone-900 font-sans selection:bg-red-500 selection:text-white">
         {/* Left Side - Poster Concept */}
@@ -531,7 +534,11 @@ export default function App() {
             <NavItem active={view === 'academy'} onClick={() => { navigateTo('academy'); setIsSidebarOpen(false); }} icon={<School className="w-5 h-5" />} label="Minha Academia" />
             <NavItem active={view === 'athletes'} onClick={() => { navigateTo('athletes'); setIsSidebarOpen(false); }} icon={<UserPlus className="w-5 h-5" />} label="Atletas" />
             <NavItem active={view === 'registrations'} onClick={() => { navigateTo('registrations'); setIsSidebarOpen(false); }} icon={<Calendar className="w-5 h-5" />} label="Inscrições" />
-            <NavItem active={view === 'competition'} onClick={() => { navigateTo('competition'); setIsSidebarOpen(false); }} icon={<Trophy className="w-5 h-5" />} label="Chaves" />
+            
+            {profile?.role === 'admin' && (
+              <NavItem active={view === 'competition'} onClick={() => { navigateTo('competition'); setIsSidebarOpen(false); }} icon={<Trophy className="w-5 h-5" />} label="COMPETIÇÃO" />
+            )}
+            
             {profile?.role === 'admin' && (
               <NavItem active={view === 'ranking'} onClick={() => { navigateTo('ranking'); setIsSidebarOpen(false); }} icon={<Medal className="w-5 h-5" />} label="Ranking" />
             )}
@@ -589,7 +596,10 @@ export default function App() {
           <div className={cn(
             (view !== 'court' && view !== 'join' && view !== 'call-panel') ? "p-4 sm:p-6 lg:p-12" : "p-0"
           )}>
-            <div className="max-w-7xl mx-auto space-y-8 md:space-y-12">
+            <div className={cn(
+              "mx-auto space-y-8 md:space-y-12",
+              view === 'call-panel' ? "max-w-none px-4" : "max-w-7xl"
+            )}>
               {view !== 'court' && view !== 'join' && view !== 'call-panel' && (
                 <header className="flex items-center justify-between pb-8 border-b border-white/5">
                   <div>
@@ -598,7 +608,7 @@ export default function App() {
                       {view === 'academy' && 'Minha Academia'}
                       {view === 'athletes' && 'Gestão de Atletas'}
                       {view === 'registrations' && 'Inscrições Ativas'}
-                      {view === 'competition' && 'Chaves de Competição'}
+                      {view === 'competition' && 'COMPETIÇÃO'}
                       {view === 'ranking' && 'Ranking'}
                       {view === 'admin' && 'Painel Administrativo'}
                       {view === 'profile' && 'Configurações de Perfil'}
@@ -616,7 +626,7 @@ export default function App() {
                 {view === 'academy' && <AcademyView key="academy" profile={profile} academies={academies} />}
                 {view === 'athletes' && <AthletesView key="athletes" profile={profile} user={user} athletes={athletes} academies={academies} registrations={registrations} />}
                 {view === 'registrations' && <RegistrationsView key="registrations" profile={profile} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} settings={settings} transactions={transactions} onViewReceipt={setViewingReceipt} initialAthleteId={viewParams?.athleteId} />}
-                {view === 'competition' && <CompetitionView key="competition" profile={profile} user={user} registrations={registrations} athletes={athletes} academies={academies} />}
+                {view === 'competition' && profile?.role === 'admin' && <CompetitionView key="competition" profile={profile} user={user} registrations={registrations} athletes={athletes} academies={academies} />}
                 {view === 'ranking' && <RankingView key="ranking" academies={academies} registrations={registrations} />}
                 {view === 'admin' && <AdminView key="admin" profile={profile} user={user} registrations={registrations} athletes={athletes} academies={academies} receipts={receipts} transactions={transactions} settings={settings} onViewReceipt={setViewingReceipt} />}
                 {view === 'profile' && <ProfileView key="profile" profile={profile} user={user} />}

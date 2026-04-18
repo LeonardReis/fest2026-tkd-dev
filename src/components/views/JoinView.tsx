@@ -17,6 +17,16 @@ export function JoinView({ onNavigate }: { onNavigate: (view: any, params: any) 
   const [selectedRole, setSelectedRole] = useState<{ label: string, index: number } | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [preSelectedCourt, setPreSelectedCourt] = useState<number | null>(null);
+  const [preSelectedType, setPreSelectedType] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const c = params.get('court');
+    const t = params.get('type');
+    if (c) setPreSelectedCourt(parseInt(c));
+    if (t) setPreSelectedType(t.toLowerCase());
+  }, []);
 
   const handleRegisterName = async () => {
     if (!deviceName.trim()) return;
@@ -35,19 +45,27 @@ export function JoinView({ onNavigate }: { onNavigate: (view: any, params: any) 
 
   const handleValidatePin = () => {
     if (inputPin === ARENA_ACCESS_PIN) {
-      setStep('court');
+      if (preSelectedCourt) {
+        console.log("🚀 Usando Arena pré-selecionada:", preSelectedCourt);
+        handleCourtSelect(preSelectedCourt as any);
+      } else {
+        setStep('court');
+      }
     } else {
       alert("PIN de Acesso Inválido. Verifique no Organizador de Arena.");
       setInputPin('');
     }
   };
 
-  const handleCourtSelect = (court: 1 | 2 | 3) => {
-    setSelectedCourt(court);
-    if (court === 1) {
+  const handleCourtSelect = (courtId: number) => {
+    setSelectedCourt(courtId as any);
+    
+    // Se vier da URL como poomsae, ou se for a quadra 1 (legado/fallback)
+    const isPoomsae = preSelectedType === 'poomsae' || (courtId === 1 && !preSelectedType);
+
+    if (isPoomsae) {
       setStep('role');
     } else {
-      // Para quadras 2 e 3, assume-se Mesário (index 0)
       setSelectedRole({ label: 'Mesário', index: 0 });
       setStep('completing');
     }
@@ -180,7 +198,7 @@ export function JoinView({ onNavigate }: { onNavigate: (view: any, params: any) 
                            <span className="text-xl font-black italic">{c}</span>
                         </div>
                         <div className="text-left">
-                           <h4 className="text-lg font-black uppercase italic leading-none">Quadra {c}</h4>
+                           <h4 className="text-lg font-black uppercase italic leading-none">Arena {c}</h4>
                            <p className="text-[10px] font-bold text-stone-500 group-hover:text-red-100 uppercase tracking-widest mt-1">
                              {c === 1 ? 'Poomsae / Kyopa' : 'Kyorugui / Festival'}
                            </p>
@@ -224,7 +242,7 @@ export function JoinView({ onNavigate }: { onNavigate: (view: any, params: any) 
                </div>
                <div className="space-y-2">
                  <h3 className="text-xl font-black uppercase italic tracking-widest">Sincronizando...</h3>
-                 <p className="text-stone-500 text-[10px] font-bold uppercase tracking-widest">Estabelecendo conexão segura com a quadra</p>
+                 <p className="text-stone-500 text-[10px] font-bold uppercase tracking-widest">Estabelecendo conexão segura com a Arena</p>
                </div>
             </motion.div>
           )}

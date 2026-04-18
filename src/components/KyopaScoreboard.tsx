@@ -127,6 +127,32 @@ export function KyopaScoreboard({ matchId, athleteName, onSuccess, onPodium, isL
         {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : isLastOfGroup ? <Trophy className="w-5 h-5" /> : <Save className="w-5 h-5" />}
         {loading ? 'Salvando...' : isLastOfGroup ? 'Finalizar Categoria e Ranking' : 'Finalizar e Salvar'}
       </Button>
+
+      <button
+        onClick={async () => {
+          if (!confirm(`Confirmar W.O. para ${athleteName}?`)) return;
+          setLoading(true);
+          try {
+            const { markAthleteAsAbsent } = await import('../services/courtService');
+            const result = await markAthleteAsAbsent(matchId, {
+              courtId: courtId as 1 | 2 | 3,
+              nextMatchId,
+              isLastOfGroup
+            });
+            if (result.podiumWinners && onPodium) {
+              onPodium(result.podiumWinners);
+            }
+            if (onSuccess) onSuccess();
+          } catch (e) {
+            console.error(e);
+            alert("Erro ao processar W.O.");
+          } finally { setLoading(false); }
+        }}
+        disabled={loading}
+        className="w-full mt-4 text-[10px] font-black uppercase tracking-widest text-stone-500 hover:text-red-500 transition-colors"
+      >
+        Atleta Ausente (W.O.)
+      </button>
     </Card>
   );
 }

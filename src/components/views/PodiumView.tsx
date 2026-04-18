@@ -99,7 +99,7 @@ export function PodiumView() {
         <div className="grid grid-cols-3 gap-4 py-4 border-y border-white/5 print:border-black/10">
           <div className="flex flex-col items-center gap-1">
             <Target className="w-4 h-4 text-stone-500 print:text-black" />
-            <span className="text-[10px] uppercase font-black text-stone-500 print:text-black">Quadra</span>
+            <span className="text-[10px] uppercase font-black text-stone-500 print:text-black">Arena</span>
             <span className="text-lg font-black">{courtId}</span>
           </div>
           <div className="flex flex-col items-center gap-1 border-x border-white/5 print:border-black/10">
@@ -194,7 +194,7 @@ export function PodiumView() {
                 {/* Assinaturas na Impressão */}
                 <div className="hidden print:grid grid-cols-2 gap-12 mt-20 pt-12">
                    <div className="border-t border-black/20 text-center pt-2">
-                     <p className="text-[8px] font-black uppercase tracking-widest">Árbitro de Quadra</p>
+                     <p className="text-[8px] font-black uppercase tracking-widest">Árbitro de Arena</p>
                    </div>
                    <div className="border-t border-black/20 text-center pt-2">
                      <p className="text-[8px] font-black uppercase tracking-widest">Diretor de Provas</p>

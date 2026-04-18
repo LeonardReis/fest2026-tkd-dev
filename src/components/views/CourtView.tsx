@@ -168,14 +168,14 @@ export function CourtView({ sessionId, user, profile, authInitialized, deviceId 
   const nextMatches = matches.filter(m => m.status === 'scheduled');
 
   const handleSkipCurrentMatch = async () => {
-    if (!activeMatch || isProcessingRanking) return;
+    if (!activeMatch || isProcessingRanking || !session) return;
     if (!confirm(`Deseja ADIAR a luta atual?\n${activeMatch.competitorA?.name} VS ${activeMatch.competitorB?.name}\n\nEla voltará para a fila para ser chamada depois.`)) return;
     
     setIsProcessingRanking(true);
     try {
-      await postponeMatch(activeMatch.id);
-    } catch (err) {
-      console.error(err);
+      await postponeMatch(activeMatch.id, session.courtId);
+    } catch (error) {
+      console.error("Erro ao pular luta:", error);
       alert("Erro ao adiar luta.");
     } finally {
       setIsProcessingRanking(false);
@@ -193,7 +193,7 @@ export function CourtView({ sessionId, user, profile, authInitialized, deviceId 
        if (!confirm("Já existe uma luta em andamento. Deseja ADIÁ-LA e chamar esta nova luta?")) return;
        setIsProcessingRanking(true);
        try {
-         await postponeMatch(activeMatch.id);
+         await postponeMatch(activeMatch.id, session.courtId);
        } catch (err) { 
          console.error(err);
          setIsProcessingRanking(false);
@@ -492,7 +492,7 @@ function JudgeSelection({ session, onSelect }: { session: CourtSession, onSelect
   return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center p-8">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-4xl text-center">
-        <h1 className="text-5xl font-black text-white uppercase italic tracking-tighter mb-4">Acesso à Quadra {session.courtId}</h1>
+        <h1 className="text-5xl font-black text-white uppercase italic tracking-tighter mb-4">Acesso à Arena {session.courtId}</h1>
         {session.refereeName && (
           <div className="bg-red-600/10 border border-red-600/20 py-2 px-6 rounded-full inline-block mb-6">
             <span className="text-red-500 text-xs font-black uppercase tracking-widest">Árbitro Responsável: {session.refereeName}</span>
@@ -1107,6 +1107,32 @@ function PoomsaeMesario({
               >
                 {isFinishing ? 'Processando...' : isLastOfGroup ? 'Finalizar Categoria e Ranking' : 'Concluir e Chamar Próximo'}
              </Button>
+
+             <Button
+                variant="ghost"
+                disabled={isFinishing}
+                onClick={async () => {
+                  if (!confirm(`Confirmar W.O. (Ausência) para ${match.competitorA?.name}? Esta ação finalizará a participação dele nesta categoria com nota 0.`)) return;
+                  setIsFinishing(true);
+                  try {
+                    const result = await import('../../services/courtService').then(m => m.markAthleteAsAbsent(match.id, {
+                      courtId: session.courtId,
+                      nextMatchId,
+                      isLastOfGroup,
+                      groupKey: match.groupKey
+                    }));
+                    if (result.podiumWinners) {
+                      onPodium(result.podiumWinners);
+                    }
+                  } catch (e: any) {
+                    console.error("Falha ao marcar W.O.:", e);
+                    alert("Erro ao processar W.O.");
+                  } finally { setIsFinishing(false); }
+                }}
+                className="mt-4 text-[10px] font-black uppercase tracking-widest text-stone-500 hover:text-red-500 transition-colors"
+              >
+                Atleta Ausente (W.O.)
+              </Button>
          </motion.div>
        ) : (
          <div className="flex items-center gap-3 text-stone-600 animate-pulse">

@@ -14,7 +14,8 @@ import {
   limit,
   getDocs,
   where,
-  runTransaction
+  runTransaction,
+  deleteDoc
 } from 'firebase/firestore';
 import { OperationType, CourtSession, Match } from '../types';
 import { PoomsaeJudgeScore } from '../types/matches';
@@ -43,8 +44,43 @@ export type PodiumData = Record<string, PodiumWinner[]>;
 export const ARENA_ACCESS_PIN = "202611"; 
 
 
+
+/**
+ * Limpa sessões inativas de uma quadra para evitar poluição visual e de dados.
+ * Mantém apenas a sessão ativa atual ou a mais recente se todas estiverem inativas.
+ */
+export async function cleanupOldSessions(courtId: number) {
+  try {
+    const q = query(
+      collection(db, 'court_sessions'),
+      where('courtId', '==', courtId),
+      orderBy('updatedAt', 'desc')
+    );
+    
+    const snap = await getDocs(q);
+    if (snap.docs.length <= 1) return;
+
+    const batch = writeBatch(db);
+    // Preservamos a primeira (mais recente) e deletamos o resto que estiver inativo
+    snap.docs.slice(1).forEach(docSnap => {
+      const data = docSnap.data();
+      // Se não for um ID fixo e estiver inativo, deletamos
+      if (!docSnap.id.startsWith('arena_court_') && data.active === false) {
+        batch.delete(docSnap.ref);
+      }
+    });
+    
+    await batch.commit();
+  } catch (error) {
+    console.warn(`[CourtService] Falha na limpeza de sessões da quadra ${courtId}:`, error);
+  }
+}
+
 export async function generateCourtSession(courtId: 1 | 2 | 3, type: 'kyorugui' | 'poomsae', judgeCount: number = 3, createdBy: string) {
   try {
+    // Limpeza prévia de sessões inativas para esta quadra
+    await cleanupOldSessions(courtId);
+
     const sessionRef = doc(collection(db, 'court_sessions'));
     
     // Set expiration to 48h from now for stability
@@ -194,14 +230,16 @@ export async function callMatch(matchId: string) {
   }
 }
 
-export async function postponeMatch(matchId: string) {
+export async function postponeMatch(matchId: string, courtId: number) {
   try {
+    const nextSeq = await getNextSequenceForCourt(courtId as any);
     await updateDoc(doc(db, 'matches', matchId), {
       status: 'scheduled',
+      matchSequence: nextSeq,
       updatedAt: serverTimestamp()
     });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, 'matches');
+  } catch (error: any) {
+    console.error("Erro ao adiar luta:", error);
     throw error;
   }
 }
@@ -1206,7 +1244,9 @@ export async function finishAndCycleMatch(
       }
 
       // 2.3 — Ativar a próxima luta da FILA da quadra
-      if (options.nextMatchId && !options.isLastOfGroup) {
+      // Ajuste: Sempre ativa se houver próxima, mesmo que seja o fim de um grupo,
+      // para manter o fluxo da quadra contínuo enquanto o pódio é exibido como overlay.
+      if (options.nextMatchId) {
         const nextQueueMatchRef = doc(db, 'matches', options.nextMatchId);
         transaction.update(nextQueueMatchRef, {
           status: 'live',
@@ -1282,3 +1322,27 @@ export async function finishAndCycleMatch(
   }
 }
 
+
+/**
+ * Marca um atleta como ausente (W.O.) e finaliza a luta com score 0.
+ * Isso permite que a categoria seja encerrada corretamente mesmo com faltas.
+ */
+export async function markAthleteAsAbsent(
+  matchId: string,
+  options: {
+    courtId: 1 | 2 | 3;
+    isLastOfGroup?: boolean;
+    nextMatchId?: string | null;
+    groupKey?: string;
+  }
+) {
+  // Para W.O., o vencedor é tecnicamente "ninguém" ou o oponente, 
+  // mas no Poomsae/Kyopa (single competitor), apenas encerramos com nota 0.
+  // No Kyorugui, o vencedor seria o outro, mas essa função é focada no fluxo de finalização.
+  return finishAndCycleMatch(matchId, {
+    ...options,
+    winnerId: 'ABSENT', // Marcador especial ou apenas null
+    scoreA: 0,
+    scoreB: 0
+  });
+}

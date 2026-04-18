@@ -62,6 +62,7 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
   const [loadingGroup, setLoadingGroup] = useState<string | null>(null);
   const [isProcessingMatch, setIsProcessingMatch] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterPending, setFilterPending] = useState(false);
 
   // Estados para o novo Modal de Fusão Múltipla
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
@@ -411,6 +412,19 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
       );
     }
 
+    // Filtragem de Pendentes
+    if (filterPending) {
+      result = Object.fromEntries(
+        Object.entries(result).filter(([key, _]) => {
+          const groupMatches = matches.filter(m => m.groupKey === key);
+          // Critério: Se não tem lutas (ex: solo ou não sorteado), é pendente.
+          // Se tem lutas, só é "concluída" se TODAS estiverem finished.
+          const isCategoryFinished = groupMatches.length > 0 && groupMatches.every(m => m.status === 'finished');
+          return !isCategoryFinished;
+        })
+      );
+    }
+
     if (profile?.role !== 'admin') {
       const filteredGroups: Record<string, any[]> = {};
       Object.entries(result).forEach(([key, groupAthletes]) => {
@@ -422,7 +436,7 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
     }
     
     return result;
-  }, [registrations, athletes, academies, selectedCategory, profile, searchTerm]);
+  }, [registrations, athletes, academies, selectedCategory, profile, searchTerm, filterPending, matches]);
 
   const stats = useMemo(() => {
     const total = matches.length;
@@ -581,29 +595,6 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
     }
   };
 
-  const handleBatchGenerate = async (modality: 'Kyorugui' | 'Poomsae' | 'Kyopa') => {
-    if (!confirm(`Deseja gerar TODAS as chaves pendentes de ${modality}? Isso distribuirá automaticamente os combates nas quadras.`)) return;
-    
-    setIsBatchLoading(true);
-    try {
-      // Filtrar apenas atletas da modalidade correta para economizar processamento
-      //groupedAthletes já está filtrado pela selectedCategory, mas por segurança vamos usar a fonte de dados se necessário
-      // No entanto, groupedAthletes reflete o estado atual da aba, o que é perfeito.
-      
-      const result = await batchGenerateModuleMatches(modality, groupedAthletes);
-      
-      if (result.categoriesProcessed > 0) {
-        alert(`Sucesso! ${result.categoriesProcessed} categorias processadas. ${result.matchesCreated} novas lutas criadas.\nTempo estimado: ${result.estimatedMinutes} minutos.`);
-      } else {
-        alert("Nenhuma categoria pendente encontrada para este módulo.");
-      }
-    } catch (error: any) {
-      alert(`Erro no processamento em lote: ${error.message}`);
-    } finally {
-      setIsBatchLoading(false);
-    }
-  };
-
   const handleResetModality = async () => {
     if (!window.confirm(`⚠️ ATENÇÃO: Deseja resetar apenas o módulo [${selectedCategory}]? Todas as chaves e lutas desta modalidade serão deletadas.`)) return;
     
@@ -643,69 +634,6 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
     }
     const pendingAthletes = athletes.filter(a => a.isMatched && !a.place);
     return pendingAthletes.length * timePerUnit;
-  };
-
-  const handlePrintSchedule = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    const sortedKeys = Object.keys(groupedAthletes).sort((a, b) => a.localeCompare(b));
-    
-    let html = `
-      <html>
-        <head>
-          <title>Cronograma - ${selectedCategory}</title>
-          <style>
-            body { font-family: sans-serif; padding: 40px; color: #333; }
-            h1 { text-transform: uppercase; border-bottom: 2px solid #000; padding-bottom: 10px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-            th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-            th { bg-color: #f5f5f5; text-transform: uppercase; font-size: 12px; }
-            tr:nth-child(even) { background-color: #f9f9f9; }
-            .badge { padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; background: #eee; }
-            .global-number { font-weight: 900; color: #d32f2f; }
-          </style>
-        </head>
-        <body>
-          <h1>Cronograma de Atividades: ${selectedCategory.toUpperCase()}</h1>
-          <p>Documento gerado em: ${new Date().toLocaleString('pt-BR')}</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Sequência</th>
-                <th>Categoria</th>
-                <th>Atletas</th>
-                <th>Estimativa</th>
-              </tr>
-            </thead>
-            <tbody>
-    `;
-
-    sortedKeys.forEach(key => {
-      const athletes = groupedAthletes[key];
-      const info = scheduleInfo[key];
-      if (info && info.count > 0) {
-        html += `
-          <tr>
-            <td class="global-number">${info.start} - ${info.end}</td>
-            <td>${key}</td>
-            <td>${athletes.length}</td>
-            <td>~${getEstimatedTime(selectedCategory, athletes, [])} min</td>
-          </tr>
-        `;
-      }
-    });
-
-    html += `
-            </tbody>
-          </table>
-          <script>window.print();</script>
-        </body>
-      </html>
-    `;
-
-    printWindow.document.write(html);
-    printWindow.document.close();
   };
 
   const modalityETAs = useMemo(() => {
@@ -769,7 +697,7 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
         <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
           <div>
             <h2 className="text-2xl md:text-3xl font-black text-white italic uppercase tracking-tighter flex flex-col sm:flex-row sm:items-center gap-4">
-              Chaves de {selectedCategory === 'Kyorugui' ? 'Luta' : selectedCategory}
+              Competição de {selectedCategory === 'Kyorugui' ? 'Luta' : selectedCategory}
               <div className="flex flex-wrap items-center gap-2">
                 <div className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-[9px] md:text-[10px] text-stone-400 flex items-center gap-1.5 whitespace-nowrap">
                   <Trophy className="w-3 h-3" />
@@ -804,12 +732,32 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
                 <input 
                   type="text"
                   inputMode={searchTerm.match(/^\d+/) ? "decimal" : "text"}
-                  placeholder="BUSCAR ATLETA OU CHAVE..."
+                  placeholder="BUSCAR ATLETA OU COMPETIÇÃO..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="bg-transparent border-b border-white/10 focus:border-red-500 outline-none text-[10px] font-black text-red-500 placeholder:text-stone-700 w-32 sm:w-48 transition-all focus:w-48 sm:focus:w-64 uppercase tracking-widest py-1"
                 />
               </div>
+
+              <div className="h-4 w-[1px] bg-white/10" />
+              
+              <button
+                onClick={() => setFilterPending(!filterPending)}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-1.5 rounded-xl border transition-all duration-300",
+                  filterPending 
+                    ? "bg-red-600/20 border-red-500/50 text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.2)]" 
+                    : "bg-white/5 border-white/10 text-stone-500 hover:text-stone-300"
+                )}
+              >
+                <div className={cn(
+                  "w-1.5 h-1.5 rounded-full",
+                  filterPending ? "bg-red-500 animate-pulse" : "bg-stone-600"
+                )} />
+                <span className="text-[9px] font-black uppercase tracking-widest">
+                  {filterPending ? "Apenas Pendentes" : "Ver Tudo"}
+                </span>
+              </button>
             </div>
           </div>
           <div className="flex w-full md:w-auto bg-white/5 p-1 rounded-2xl border border-white/5 overflow-x-auto scrollbar-hide">
@@ -818,21 +766,10 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
                 <>
                   <Button 
                     variant="ghost" 
-                    onClick={handleCopyLink}
-                    className={cn(
-                      "mr-2 text-[9px] font-black uppercase tracking-widest transition-all h-9 px-3 gap-2",
-                      copiedLink ? "bg-emerald-600 text-white border-emerald-500" : "text-emerald-500 border-emerald-500/30 hover:bg-emerald-500 hover:text-white"
-                    )}
-                  >
-                    {copiedLink ? <CheckCircle2 className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    {copiedLink ? "Link Copiado!" : "Compartilhar Portal"}
-                  </Button>
-                  <Button 
-                    variant="ghost" 
                     onClick={() => setIsCourtQueueModalOpen(true)}
                     className="mr-2 text-[9px] font-black uppercase tracking-widest text-amber-500 border-amber-500/30 hover:bg-amber-500 hover:text-white transition-all shadow-[0_0_15px_rgba(245,158,11,0.2)] h-9 px-3"
                   >
-                    ⚡ Filas de Quadra
+                    ⚡ Filas de Arena
                   </Button>
                 </>
               )}
@@ -873,52 +810,30 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
             
             <div className="md:col-span-1 space-y-1">
               <h4 className="text-[10px] font-black text-red-500 uppercase tracking-[0.2em]">Painel de Comando</h4>
-              <p className="text-xl font-black text-white italic uppercase tracking-tighter">Ações Globais</p>
+              <p className="text-xl font-black text-white italic uppercase tracking-tighter">Visão Operacional</p>
               <div className="flex items-center gap-2 mt-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <div className="flex -space-x-1">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 opacity-30 animate-ping" />
+                </div>
                 <span className="text-[9px] font-bold text-stone-500 uppercase tracking-widest">{currentModalityStats.pendingCategories} Categorias Pendentes</span>
               </div>
             </div>
 
-            <div className="md:col-span-2 flex flex-wrap items-center gap-3">
-              <Button 
-                disabled={isBatchLoading || currentModalityStats.pendingCategories === 0}
-                onClick={() => handleBatchGenerate(selectedCategory as any)}
-                className="bg-red-600 hover:bg-red-700 text-white border-none h-12 px-6 rounded-2xl shadow-[0_10px_20px_rgba(220,38,38,0.2)] group/btn"
-              >
-                {isBatchLoading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <>
-                    <PlaySquare className="w-5 h-5 mr-3 group-hover:scale-110 transition-transform" />
-                    <div className="text-left">
-                      <p className="text-[10px] font-black uppercase tracking-tighter leading-none">Abrir Todas as Chaves</p>
-                      <p className="text-[8px] font-bold opacity-60 uppercase tracking-widest mt-0.5">Módulo {selectedCategory}</p>
-                    </div>
-                  </>
-                )}
-              </Button>
-              <Button 
-                variant="secondary"
-                onClick={handlePrintSchedule}
-                className="border-white/10 text-stone-300 hover:text-white bg-white/5 h-12 px-6 rounded-2xl flex items-center gap-3"
-              >
-                <Printer className="w-5 h-5 opacity-70" />
-                <div className="text-left">
-                  <p className="text-[10px] font-black uppercase tracking-tighter leading-none">Imprimir Cronograma</p>
-                  <p className="text-[8px] font-bold opacity-60 uppercase tracking-widest mt-0.5">Visão de Mesa</p>
+            <div className="md:col-span-2 flex items-center justify-center">
+              <div className="flex items-center gap-12 px-10 py-4 bg-black/40 rounded-[2.5rem] border border-white/5 shadow-inner">
+                <div className="text-center group/meta">
+                  <p className="text-[9px] font-black text-stone-500 uppercase tracking-[0.3em] mb-1 group-hover/meta:text-red-500 transition-colors">Tempo Estimado</p>
+                  <p className="text-3xl font-black text-white italic tracking-tighter">
+                    ~{Math.ceil(currentModalityStats.estimatedTimeMinutes / 60)}h {currentModalityStats.estimatedTimeMinutes % 60}m
+                  </p>
                 </div>
-              </Button>
-
-              <div className="flex items-center gap-4 ml-auto px-6 py-2 bg-black/20 rounded-2xl border border-white/5">
-                <div className="text-center">
-                  <p className="text-[8px] font-bold text-stone-500 uppercase tracking-widest">Tempo Estimado</p>
-                  <p className="text-lg font-black text-white">~{Math.ceil(currentModalityStats.estimatedTimeMinutes / 60)}h {currentModalityStats.estimatedTimeMinutes % 60}min</p>
-                </div>
-                <div className="w-[1px] h-8 bg-white/10" />
-                <div className="text-center">
-                  <p className="text-[8px] font-bold text-stone-500 uppercase tracking-widest">Carga Total</p>
-                  <p className="text-lg font-black text-amber-500">{currentModalityStats.totalAthletes}</p>
+                <div className="w-[1px] h-10 bg-white/10" />
+                <div className="text-center group/meta">
+                  <p className="text-[9px] font-black text-stone-500 uppercase tracking-[0.3em] mb-1 group-hover/meta:text-amber-500 transition-colors">Carga Total</p>
+                  <p className="text-3xl font-black text-amber-500 italic tracking-tighter">
+                    {currentModalityStats.totalAthletes} <span className="text-[10px] text-stone-600 not-italic ml-1">UN</span>
+                  </p>
                 </div>
               </div>
             </div>
@@ -1016,7 +931,7 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
             <p className="text-[10px] text-stone-600 font-black uppercase tracking-[0.2em]">Nenhum atleta confirmado</p>
           </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-8">
+          <div className="grid grid-cols-1 gap-4 lg:gap-8">
             {Object.entries(groupedAthletes).map(([key, groupAthletes]) => {
               const firstAthlete = groupAthletes[0];
               const rounds = selectedCategory === 'Kyorugui' ? getFightRounds(firstAthlete?.ageCat || '') : null;
@@ -1051,7 +966,7 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
                           )}
                           {groupMatches.length > 0 && groupMatches[0].courtId && (
                             <span className="px-2 py-0.5 bg-amber-500 rounded text-[8px] font-black text-black uppercase">
-                              Q{groupMatches[0].courtId} - {groupMatches[0].matchSequence}..{groupMatches[groupMatches.length-1].matchSequence}
+                              A{groupMatches[0].courtId} - {groupMatches[0].matchSequence}..{groupMatches[groupMatches.length-1].matchSequence}
                             </span>
                           )}
                           {scheduleInfo[key] && scheduleInfo[key].count > 0 && (
@@ -1115,7 +1030,7 @@ export function CompetitionView({ registrations, athletes, academies, user, prof
                                           : "text-stone-500 hover:text-white"
                                       )}
                                     >
-                                      Q{q}
+                                      A{q}
                                     </button>
                                   ))}
                                 </div>

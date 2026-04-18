@@ -93,21 +93,22 @@ service cloud.firestore {
     }
 
     match /athletes/{athleteId} {
-      allow read: if isAuthenticated();
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.academyId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.academyId);
       allow create: if isAuthenticated() && isValidAthlete(request.resource.data) && (isAdmin() || (isMaster() && request.resource.data.academyId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.academyId));
-      allow update: if isAdmin() || (isAuthenticated() && resource.data.createdBy == request.auth.uid);
+      allow update: if isAdmin() || (isAuthenticated() && (resource.data.createdBy == request.auth.uid || resource.data.academyId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.academyId));
       allow delete: if isAdmin();
     }
 
     match /registrations/{regId} {
-      allow read: if isAuthenticated();
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.academyId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.academyId);
       allow create: if isAuthenticated() && isValidRegistration(request.resource.data) && 
                       (isAdmin() || isMaster());
       allow update: if isAdmin() || (isAuthenticated() && (
                       (resource.data.academyId != null && get(/databases/$(database)/documents/academies/$(resource.data.academyId)).data.createdBy == request.auth.uid) ||
+                      (resource.data.academyId != null && resource.data.academyId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.academyId) ||
                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['results', 'updatedAt'])
                     ));
-      allow delete: if isAdmin() || (isAuthenticated() && (resource.data.academyId != null && get(/databases/$(database)/documents/academies/$(resource.data.academyId)).data.createdBy == request.auth.uid));
+      allow delete: if isAdmin() || (isAuthenticated() && (resource.data.academyId != null && (get(/databases/$(database)/documents/academies/$(resource.data.academyId)).data.createdBy == request.auth.uid || resource.data.academyId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.academyId)));
     }
 
     match /receipts/{receiptId} {

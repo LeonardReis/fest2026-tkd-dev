@@ -11,7 +11,7 @@ import { CompetitionView } from './CompetitionView';
 import { FinancialLedger } from './FinancialLedger';
 
 export function AdminView({ profile, user, registrations, athletes, academies, receipts, transactions, settings, onViewReceipt, key }: { profile: UserProfile | null; user: User | null; registrations: Registration[]; athletes: Athlete[]; academies: Academy[]; receipts: any[]; transactions: Transaction[]; settings: any; onViewReceipt: (data: string) => void; key?: string }) {
-  const [adminTab, setAdminTab] = useState<'finance' | 'ledger' | 'competition'>('finance');
+  const [adminTab, setAdminTab] = useState<'finance' | 'ledger'>('finance');
 
   const academyStats = useMemo(() => academies.map(academy => {
     const academyRegs = registrations.filter(r => r.academyId === academy.id);
@@ -179,12 +179,6 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
             className={cn("px-4 py-2 text-[10px] whitespace-nowrap font-black uppercase tracking-widest transition-all rounded-xl", adminTab === 'ledger' ? "bg-red-600 text-white shadow-lg" : "text-stone-500 hover:text-white")}
           >
             Caixa / Extras
-          </button>
-          <button 
-            onClick={() => setAdminTab('competition')}
-            className={cn("px-4 py-2 text-[10px] whitespace-nowrap font-black uppercase tracking-widest transition-all rounded-xl", adminTab === 'competition' ? "bg-red-600 text-white shadow-lg" : "text-stone-500 hover:text-white")}
-          >
-            Competição
           </button>
         </div>
       </header>
@@ -371,9 +365,6 @@ export function AdminView({ profile, user, registrations, athletes, academies, r
         </div>
       )}
       
-      {adminTab === 'competition' && (
-        <CompetitionView registrations={registrations} athletes={athletes} academies={academies} user={user!} profile={profile} />
-      )}
     </motion.div>
   );
 }
