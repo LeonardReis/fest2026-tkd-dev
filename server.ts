@@ -190,6 +190,75 @@ async function startServer() {
     }
   });
 
+  // ─── Results Export Endpoint (tkd-platform integration) ───────────────────
+  app.get("/api/v1/results", async (req, res) => {
+    const apiKey = req.headers['x-api-key'];
+    const expectedKey = process.env.FESTIVAL_API_KEY;
+
+    if (!expectedKey || apiKey !== expectedKey) {
+      return res.status(401).json({ error: "Chave de API inválida ou ausente." });
+    }
+
+    if (!db) {
+      return res.status(503).json({ error: "Banco de dados não disponível. Configure FIREBASE_SERVICE_ACCOUNT_KEY." });
+    }
+
+    try {
+      const [athletesSnap, registrationsSnap] = await Promise.all([
+        db.collection('athletes').get(),
+        db.collection('registrations').where('status', '==', 'Confirmado').get(),
+      ]);
+
+      const athleteMap = new Map<string, Record<string, unknown>>();
+      athletesSnap.docs.forEach(doc => {
+        athleteMap.set(doc.id, { id: doc.id, ...doc.data() });
+      });
+
+      const payload: Record<string, unknown>[] = [];
+
+      registrationsSnap.docs.forEach(doc => {
+        const reg = doc.data();
+        const athlete = athleteMap.get(reg.athleteId as string);
+        if (!athlete || !Array.isArray(reg.results) || reg.results.length === 0) return;
+
+        const validResults = (reg.results as Record<string, unknown>[]).filter(
+          r => r.place !== null && r.place !== 'WO'
+        );
+
+        if (validResults.length === 0) return;
+
+        payload.push({
+          athlete: {
+            id: athlete.id,
+            name: athlete.name,
+            birthYear: athlete.birthYear,
+            gender: athlete.gender,
+            belt: athlete.belt,
+            weight: athlete.weight,
+            academyId: athlete.academyId,
+          },
+          results: validResults.map(r => ({
+            groupKey: r.groupKey,
+            modality: r.modality ?? null,
+            place: r.place,
+            score: r.score ?? null,
+          })),
+        });
+      });
+
+      res.json({
+        festival: 'Festival de Taekwondo Colombo 2026',
+        date: '2026-04-12',
+        exportedAt: new Date().toISOString(),
+        totalAthletes: payload.length,
+        data: payload,
+      });
+    } catch (err) {
+      console.error("[/api/v1/results] Erro:", err);
+      res.status(500).json({ error: "Erro interno ao agregar resultados." });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
