@@ -53,7 +53,7 @@ async function startServer() {
   app.use(cors({
     origin: process.env.NODE_ENV === "production" ? (process.env.APP_URL || false) : '*',
     methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'x-signature']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'x-signature', 'x-api-key']
   }));
   app.use(express.json());
 
