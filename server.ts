@@ -204,14 +204,21 @@ async function startServer() {
     }
 
     try {
-      const [athletesSnap, registrationsSnap] = await Promise.all([
+      const [athletesSnap, registrationsSnap, academiesSnap] = await Promise.all([
         db.collection('athletes').get(),
         db.collection('registrations').where('status', '==', 'Confirmado').get(),
+        db.collection('academies').get(),
       ]);
 
       const athleteMap = new Map<string, Record<string, unknown>>();
       athletesSnap.docs.forEach(doc => {
         athleteMap.set(doc.id, { id: doc.id, ...doc.data() });
+      });
+
+      const academyMap = new Map<string, string>(); // id → name
+      academiesSnap.docs.forEach(doc => {
+        const data = doc.data();
+        academyMap.set(doc.id, (data.name as string) ?? doc.id);
       });
 
       const payload: Record<string, unknown>[] = [];
@@ -227,6 +234,7 @@ async function startServer() {
 
         if (validResults.length === 0) return;
 
+        const academyId = athlete.academyId as string;
         payload.push({
           athlete: {
             id: athlete.id,
@@ -235,7 +243,8 @@ async function startServer() {
             gender: athlete.gender,
             belt: athlete.belt,
             weight: athlete.weight,
-            academyId: athlete.academyId,
+            academyId,
+            academyName: academyMap.get(academyId) ?? academyId,
           },
           results: validResults.map(r => ({
             groupKey: r.groupKey,
@@ -246,11 +255,15 @@ async function startServer() {
         });
       });
 
+      // Academies index for the mapping UI
+      const academies = Array.from(academyMap.entries()).map(([id, name]) => ({ id, name }));
+
       res.json({
         festival: 'Festival de Taekwondo Colombo 2026',
         date: '2026-04-12',
         exportedAt: new Date().toISOString(),
         totalAthletes: payload.length,
+        academies,
         data: payload,
       });
     } catch (err) {
